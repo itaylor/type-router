@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Type Router Test - Manual Init</title>
+    </head>
+    <body>
+        <div id="output"></div>
+        <div id="controls">
+            <button id="init-btn">Initialize Router</button>
+            <button id="navigate-btn" disabled>Navigate to /dashboard</button>
+        </div>
+
+        <script type="module">
+            import { setupManualRouter } from "./manual-init-routes.js";
+            setupManualRouter();
+        </script>
+    </body>
+</html>

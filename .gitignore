@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build output from dnt
+npm/
+
+# OS files
+.DS_Store
+
+# Test coverage
+coverage/
+.zed/

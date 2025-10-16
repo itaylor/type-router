@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Type Router Test - Hash Mode</title>
+    </head>
+    <body>
+        <div id="output"></div>
+        <div id="navigation">
+            <a href="#/">Home</a>
+            <a href="#/about">About</a>
+            <a href="#/user/123">User 123</a>
+            <a href="#/user/456">User 456</a>
+            <a href="#/post/tech/hello">Tech Post</a>
+            <a href="#/profile/alice">Alice's Profile</a>
+            <a href="#/profile/bob">Bob's Profile</a>
+            <a href="#/nonexistent">404 Test</a>
+        </div>
+
+        <script type="module">
+            import { setupRouter } from "./shared-routes.js";
+            setupRouter("hash");
+        </script>
+    </body>
+</html>
