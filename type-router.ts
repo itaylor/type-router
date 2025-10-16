@@ -1,12 +1,11 @@
 // --- param parsing helpers ---
 type ParamKeys<S extends string> = S extends `${string}:${infer P}`
-  ? P extends `${infer Key}/${infer Rest}`
-    ? Key | ParamKeys<Rest>
-    : P
+  ? P extends `${infer Key}/${infer Rest}` ? Key | ParamKeys<Rest>
+  : P
   : never;
 
 export type ParamsFor<P extends string> = [ParamKeys<P>] extends [never]
-  ? {}
+  ? Record<string, string>
   : Record<ParamKeys<P>, string>;
 
 // --- route + factory ---
@@ -16,6 +15,8 @@ export type Route<P extends string> = {
   onParamChange?: (params: ParamsFor<P>, prevParams: ParamsFor<P>) => void;
   onExit?: (params: ParamsFor<P>) => void;
 };
+
+export type RoutePath<R extends readonly Route<string>[]> = R[number]["path"];
 
 // -------- new path-matching helpers --------
 type StripLeadingSlash<S extends string> = S extends `/${infer R}`
@@ -30,12 +31,10 @@ type WithOptionalTrailingSlash<S extends string> = S extends `${infer A}/`
   ? S | A
   : S | `${S}/`;
 
-type Segments<S extends string> =
-  StripLeadingSlash<S> extends `${infer A}/${infer B}`
-    ? [A, ...Segments<B>]
-    : StripLeadingSlash<S> extends ""
-      ? []
-      : [StripLeadingSlash<S>];
+type Segments<S extends string> = StripLeadingSlash<S> extends
+  `${infer A}/${infer B}` ? [A, ...Segments<B>]
+  : StripLeadingSlash<S> extends "" ? []
+  : [StripLeadingSlash<S>];
 
 type MatchSegments<
   SS extends string[], // concrete segments
@@ -44,13 +43,12 @@ type MatchSegments<
   ? SS extends [infer SH extends string, ...infer ST extends string[]]
     ? PH extends `:${string}` // param segment -> any single segment
       ? MatchSegments<ST, PT>
-      : SH extends PH // literal segment must equal
-        ? MatchSegments<ST, PT>
-        : false
-    : false // not enough concrete segments
-  : SS extends []
-    ? true
-    : false; // must be exact length (no extras)
+    : SH extends PH // literal segment must equal
+      ? MatchSegments<ST, PT>
+    : false
+  : false // not enough concrete segments
+  : SS extends [] ? true
+  : false; // must be exact length (no extras)
 
 type IsConcreteMatch<S extends string, P extends string> = MatchSegments<
   Segments<StripTrailingSlash<S>>,
@@ -59,14 +57,14 @@ type IsConcreteMatch<S extends string, P extends string> = MatchSegments<
 
 // For a union of patterns, accept S if it matches *any* member.
 type ConcretePathForUnion<Ps extends string, S extends string> = Ps extends any
-  ? IsConcreteMatch<S, Ps> extends true
-    ? S
-    : never
+  ? IsConcreteMatch<S, Ps> extends true ? S
+  : never
   : never;
 
 export type Options<R extends readonly Route<string>[]> = {
   urlType: "hash" | "history";
-  fallbackPath?: R[number]["path"];
+  fallbackPath?: RoutePath<R>;
+  autoInit?: boolean;
   onEnter?: (route: Route<string>, params: Record<string, string>) => void;
   onParamChange?: (
     route: Route<string>,
@@ -85,36 +83,39 @@ type RouteWithParams<Path extends string> = {
 
 export type RouteState<R extends readonly Route<string>[]> = {
   path: string | null;
-  params: ParamsFor<R[number]["path"]>;
-  route: Route<R[number]["path"]> | null;
+  params: ParamsFor<RoutePath<R>>;
+  route: Route<RoutePath<R>> | null;
 };
 
 // Sets the url to a valid path that exists in a route
 // Overload 1: call with a declared pattern + (typed) params
 // Overload 2: call with a concrete path that matches one of the patterns
 export type NavigateFn<R extends readonly Route<string>[]> = {
-  <P extends WithOptionalTrailingSlash<R[number]["path"]>>(
+  <P extends WithOptionalTrailingSlash<RoutePath<R>>>(
     path: P,
     params: ParamsFor<P>,
   ): Promise<void>;
   <S extends string>(
-    path: ConcretePathForUnion<R[number]["path"], S>,
+    path: ConcretePathForUnion<RoutePath<R>, S>,
   ): Promise<void>;
 };
 
 // Router type for the return type of createRouter
 export type Router<R extends readonly Route<string>[]> = {
   navigate: NavigateFn<R>;
+  navigateAny: (path: string) => Promise<void>;
   getState: () => RouteState<R>;
   subscribe: (callback: (route: RouteState<R>) => void) => () => void;
-  computePath: (
-    path: R[number]["path"],
-    params?: ParamsFor<R[number]["path"]>,
-  ) => ConcretePathForUnion<R[number]["path"], typeof path>;
+  computePath: <P extends RoutePath<R>>(
+    path: P,
+    params?: ParamsFor<P>,
+  ) => ConcretePathForUnion<RoutePath<R>, typeof path>;
+  init: () => void;
 };
 
 const defaultOptions = {
   urlType: "history",
+  autoInit: true,
 } as const;
 
 export function createRouter<const R extends readonly Route<string>[]>(
@@ -122,7 +123,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
   opts: Partial<Options<R>> = defaultOptions,
 ): Router<R> {
   const options = { ...defaultOptions, ...opts };
-  type Path = R[number]["path"];
+  type Path = RoutePath<R>;
   const emptyParams = {} as ParamsFor<Path>;
   const subscribers = new Set<(state: RouteState<R>) => void>();
 
@@ -132,7 +133,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
     params: emptyParams,
     route: null,
   };
-  let matchers = buildRouteMatchers(routes);
+  const matchers = buildRouteMatchers(routes);
 
   // Track pending navigation promises for proper async handling
   const pendingNavigations: Array<{ path: string; resolve: () => void }> = [];
@@ -151,7 +152,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
       if (urlType === "history") {
         // For history mode: pushState doesn't trigger any events,
         // so we manually activate the route asynchronously
-        window.history.pushState({}, "", pathStr);
+        globalThis.history.pushState({}, "", pathStr);
         setTimeout(() => {
           activateRoute(pathStr, route, params);
           resolve();
@@ -162,25 +163,31 @@ export function createRouter<const R extends readonly Route<string>[]>(
         // Add this navigation to the queue
         // Each hash change fires its own event, so we queue them all
         pendingNavigations.push({ path: pathStr, resolve });
-        window.location.hash = pathStr;
+        globalThis.location.hash = pathStr;
         // The hashchange handler will call activateRoute and resolve
       }
     });
   };
 
-  function computePath(
-    path: Path,
-    params?: ParamsFor<Path>,
-  ): ConcretePathForUnion<R[number]["path"], typeof path> {
+  // navigateAny allows navigation to any string path without compile-time type checking
+  // Useful for runtime navigation from user input, HTML links, external URLs, etc.
+  function navigateAny(path: string): Promise<void> {
+    return navigate(path as any);
+  }
+
+  function computePath<P extends Path>(
+    path: P,
+    params?: ParamsFor<P>,
+  ): ConcretePathForUnion<RoutePath<R>, typeof path> {
     // Takes the params and substitutes them into the path string, then returns it.
     // EG: 'path/abc' === computePath('/path/:id', { id: 'abc' });
     if (!params) {
-      return path as ConcretePathForUnion<R[number]["path"], typeof path>;
+      return path as ConcretePathForUnion<RoutePath<R>, typeof path>;
     }
     return path.replace(
       /:(\w+)/g,
-      (_, key) => params[key] || "",
-    ) as ConcretePathForUnion<R[number]["path"], typeof path>;
+      (_, key) => (params as any)[key] || "",
+    ) as ConcretePathForUnion<RoutePath<R>, typeof path>;
   }
 
   function getRouteWithParams(path: string): RouteWithParams<Path> {
@@ -195,8 +202,8 @@ export function createRouter<const R extends readonly Route<string>[]>(
         if (!route) continue;
 
         // Extract parameters from the matched path
-        const paramKeys =
-          routePath.match(/:(\w+)/g)?.map((p) => p.slice(1)) || [];
+        const paramKeys = routePath.match(/:(\w+)/g)?.map((p) => p.slice(1)) ||
+          [];
         const params: Record<string, string> = {};
         paramKeys.forEach((key, index) => {
           params[key] = match[index + 1]; // +1 because match[0] is the full match
@@ -235,10 +242,10 @@ export function createRouter<const R extends readonly Route<string>[]>(
 
   function getPath() {
     if (urlType === "history") {
-      const { pathname, search } = window.location;
+      const { pathname, search } = globalThis.location;
       return pathname + search;
     }
-    const { hash } = window.location;
+    const { hash } = globalThis.location;
     return hash.slice(1);
   }
 
@@ -295,13 +302,12 @@ export function createRouter<const R extends readonly Route<string>[]>(
   }
 
   function init() {
-    const path = getPath();
-    const { route, params }: RouteWithParams<Path> = getRouteWithParams(path);
     // activate the route once before adding event listener
     // this will set the current route and params
-    activateRoute(path, route, params);
+    handleUrlChange(getPath());
+
     const event = urlType === "history" ? "popstate" : "hashchange";
-    window.addEventListener(event, () => {
+    globalThis.addEventListener(event, () => {
       handleUrlChange(getPath());
     });
   }
@@ -315,13 +321,26 @@ export function createRouter<const R extends readonly Route<string>[]>(
     return currState;
   }
 
-  init();
+  // Auto-initialize if autoInit is true (default)
+  if (options.autoInit) {
+    init();
+  }
+
   return {
     getState,
     computePath,
     navigate,
+    navigateAny,
     subscribe,
+    init,
   };
+}
+
+// helper function that sets the appropriate type on the route by inference.
+// useful when you want to create the routes outside of the call to createRouter
+// which would usually infer them for you
+export function makeRoute<P extends string>(route: Route<P>): Route<P> {
+  return route;
 }
 
 // // --- usage ---
