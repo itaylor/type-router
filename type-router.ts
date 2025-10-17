@@ -123,7 +123,7 @@ export type Router<R extends readonly Route<string>[]> = {
   computePath: <P extends RoutePath<R>>(
     path: P,
     params?: ParamsFor<P>,
-  ) => ConcretePathForUnion<RoutePath<R>, typeof path>;
+  ) => ValidatePath<ConcretePathForUnion<RoutePath<R>, typeof path>>;
   init: () => void;
 };
 
@@ -209,16 +209,18 @@ export function createRouter<const R extends readonly Route<string>[]>(
   function computePath<P extends Path>(
     path: P,
     params?: ParamsFor<P>,
-  ): ConcretePathForUnion<RoutePath<R>, typeof path> {
+  ): ValidatePath<ConcretePathForUnion<RoutePath<R>, typeof path>> {
     // Takes the params and substitutes them into the path string, then returns it.
     // EG: 'path/abc' === computePath('/path/:id', { id: 'abc' });
     if (!params) {
-      return path as ConcretePathForUnion<RoutePath<R>, typeof path>;
+      return path as ValidatePath<
+        ConcretePathForUnion<RoutePath<R>, typeof path>
+      >;
     }
     return path.replace(
       /:(\w+)/g,
       (_, key) => encodeURIComponent((params as any)[key] || ''),
-    ) as ConcretePathForUnion<RoutePath<R>, typeof path>;
+    ) as ValidatePath<ConcretePathForUnion<RoutePath<R>, typeof path>>;
   }
 
   function getRouteWithParams(path: string): RouteWithParams<Path> {

@@ -6,8 +6,8 @@ powerful API.
 
 ## Features
 
-- 🎯 **100% Type-Safe**: Full TypeScript support with automatic parameter type
-  inference
+- 🎯 **Robust Type-Safety**: Full TypeScript support with automatic parameter
+  type inference
 - 🪶 **Lightweight**: Zero dependencies, ~2KB minified
 - 🔄 **Flexible Routing**: Support for both hash-based and history-based routing
 - 🎨 **Framework Agnostic**: Works with any UI framework or vanilla JavaScript
@@ -83,21 +83,25 @@ Routes are defined as objects with a `path` pattern and optional lifecycle
 hooks:
 
 ```typescript
-const route = {
-  path: '/user/:id/posts/:postId',
-  onEnter: (params) => {
-    // Called when entering this route
-    console.log(`User ${params.id}, Post ${params.postId}`);
-  },
-  onExit: (params) => {
-    // Called when leaving this route
-    console.log(`Leaving user ${params.id}`);
-  },
-  onParamChange: (params, prevParams) => {
-    // Called when navigating to the same route with different params
-    console.log(`User changed from ${prevParams.id} to ${params.id}`);
-  },
-};
+const router = createRouter(
+  [
+    {
+      path: '/user/:id/posts/:postId',
+      onEnter: (params) => {
+        // Called when entering this route
+        console.log(`User ${params.id}, Post ${params.postId}`);
+      },
+      onExit: (params) => {
+        // Called when leaving this route
+        console.log(`Leaving user ${params.id}`);
+      },
+      onParamChange: (params, prevParams) => {
+        // Called when navigating to the same route with different params
+        console.log(`User changed from ${prevParams.id} to ${params.id}`);
+      },
+    },
+  ] as const,
+);
 ```
 
 ### Route Parameters
@@ -107,9 +111,7 @@ automatically infers the parameter types:
 
 ```typescript
 const router = createRouter(
-  [
-    { path: '/product/:category/:id' },
-  ] as const,
+  [{ path: '/product/:category/:id' }] as const,
 );
 
 // TypeScript knows params must have 'category' and 'id'
@@ -151,25 +153,46 @@ Creates a new router instance.
 
 #### Options
 
-| Option          | Type                  | Default     | Description                                  |
-| --------------- | --------------------- | ----------- | -------------------------------------------- |
-| `urlType`       | `'hash' \| 'history'` | `'history'` | Routing mode to use                          |
-| `fallbackPath`  | `string`              | `undefined` | Route to use when no match is found          |
-| `autoInit`      | `boolean`             | `true`      | Automatically initialize routing on creation |
-| `onEnter`       | `function`            | `undefined` | Global hook called when entering any route   |
-| `onExit`        | `function`            | `undefined` | Global hook called when exiting any route    |
-| `onParamChange` | `function`            | `undefined` | Global hook called when params change        |
-| `onMiss`        | `function`            | `undefined` | Called when no route matches                 |
+| Option          | Type                  | Default     | Description                                                                                             |
+| --------------- | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
+| `urlType`       | `'hash' \| 'history'` | `'history'` | Routing mode to use                                                                                     |
+| `fallbackPath`  | `string`              | `undefined` | Route to use when no match is found (must be a concrete, non-parameterized route path from your routes) |
+| `autoInit`      | `boolean`             | `true`      | Automatically initialize routing on creation                                                            |
+| `onEnter`       | `function`            | `undefined` | Global hook called when entering any route                                                              |
+| `onExit`        | `function`            | `undefined` | Global hook called when exiting any route                                                               |
+| `onParamChange` | `function`            | `undefined` | Global hook called when params change                                                                   |
+| `onMiss`        | `function`            | `undefined` | Called when no route matches                                                                            |
+
+### `makeRoute(route)`
+
+Helper function that creates a route with proper TypeScript inference. While not
+strictly required, it provides better type checking when defining routes outside
+of the `createRouter` call.
+
+```typescript
+import { makeRoute } from '@itaylor/type-router';
+
+// Better type inference
+const userRoute = makeRoute({
+  path: '/user/:id',
+  onEnter: (params) => {
+    // params.id is properly typed as string
+    console.log('User ID:', params.id);
+  },
+});
+
+const router = createRouter([userRoute] as const);
+```
 
 ### Router Methods
 
 #### `navigate(path, params?)`
 
-Navigate to a route. Returns a Promise that resolves when navigation is
-complete.
+Navigate to a route with compile-time type checking. Returns a Promise that
+resolves when navigation is complete.
 
 ```typescript
-// With parameters
+// With parameters (pattern matching)
 await router.navigate('/user/:id', { id: '123' });
 
 // With concrete path
@@ -180,16 +203,42 @@ await router.navigate('/about');
 await router.navigate('/about/'); // Same as above
 ```
 
+#### `navigateAny(path)`
+
+Navigate to any string path without compile-time type checking. Useful for
+runtime navigation from user input, HTML links, or external URLs. Returns a
+Promise that resolves when navigation is complete.
+
+```typescript
+// Navigate to any path - useful for dynamic/runtime navigation
+await router.navigateAny('/dynamic/path/from/user/input');
+await router.navigateAny(window.location.pathname); // Current URL
+
+// No compile-time checking - will use fallback if route doesn't exist
+await router.navigateAny('/potentially/invalid/route');
+```
+
 #### `getState()`
 
-Get the current routing state.
+Get the current routing state. Returns an object with nullable properties.
 
 ```typescript
 const state = router.getState();
-console.log(state.path); // Current path
-console.log(state.params); // Current parameters
-console.log(state.route); // Current route object
+
+// State properties can be null if no route is active
+console.log(state.path); // string | null - Current path
+console.log(state.params); // Record<string, string> - Current parameters
+console.log(state.route); // Route object | null - Current route
+
+// Always check for null before using
+if (state.route) {
+  console.log('Current route:', state.route.path);
+}
 ```
+
+**Note**: The state types are unions of all possible routes, not strictly typed
+to the current route. Always check `state.route` for null and use type guards as
+needed.
 
 #### `subscribe(callback)`
 
@@ -198,6 +247,11 @@ Subscribe to route changes. Returns an unsubscribe function.
 ```typescript
 const unsubscribe = router.subscribe((state) => {
   console.log('Route changed:', state.path);
+
+  // Check for null route
+  if (state.route) {
+    console.log('Active route:', state.route.path);
+  }
 });
 
 // Later...
@@ -211,6 +265,10 @@ Convert a route pattern and parameters into a concrete path.
 ```typescript
 const path = router.computePath('/user/:id', { id: '123' });
 console.log(path); // '/user/123'
+
+// Works without parameters for routes without params
+const homePath = router.computePath('/');
+console.log(homePath); // '/'
 ```
 
 #### `init()`
@@ -228,46 +286,168 @@ router.init();
 
 ## Advanced Usage
 
+### Using makeRoute for Better Type Safety
+
+When defining routes outside of `createRouter`, use `makeRoute` for better type
+inference:
+
+```typescript
+import { createRouter, makeRoute } from '@itaylor/type-router';
+
+// When routes are defined inline - no makeRoute needed
+const inlineRouter = createRouter(
+  [
+    {
+      path: '/user/:id',
+      onEnter: (params) => {
+        // params.id is properly inferred as string
+        console.log(params.id);
+      },
+    },
+  ] as const,
+);
+
+// When routes are defined separately - makeRoute helps with inference
+const userRoute = makeRoute({
+  path: '/user/:id',
+  onEnter: (params) => {
+    // params.id is properly inferred as string
+    console.log(params.id);
+  },
+});
+
+const separateRouter = createRouter([userRoute] as const);
+```
+
 ### Global vs Route-Level Hooks
 
 You can define hooks at both global and route levels. Global hooks run before
 route-level hooks:
 
 ```typescript
-const router = createRouter([
+const router = createRouter(
+  [
+    {
+      path: '/dashboard',
+      onEnter: () => console.log('Route: Entering dashboard'),
+    },
+  ],
   {
-    path: '/dashboard',
-    onEnter: () => console.log('Route: Entering dashboard'),
+    onEnter: (route, params) => {
+      console.log('Global: Entering', route.path);
+    },
   },
-], {
-  onEnter: (route, params) => {
-    console.log('Global: Entering', route.path);
-  },
-});
+);
 
 // Navigation will log:
 // "Global: Entering /dashboard"
 // "Route: Entering dashboard"
 ```
 
-### Fallback Routes
+### Fallback Routes and Error Handling
 
-Handle unmatched routes gracefully:
+Handle unmatched routes gracefully with compile-time type safety:
 
 ```typescript
 const router = createRouter(
   [
     { path: '/' },
     { path: '/about' },
+    { path: '/user/:id' }, // Parameterized route
     { path: '/404' },
   ] as const,
   {
+    // ✅ Valid - fallback must be a concrete route from your routes
     fallbackPath: '/404',
+
+    // ❌ TypeScript error - fallback cannot be parameterized
+    // fallbackPath: "/user/:id",
+
+    // ❌ TypeScript error - fallback must exist in routes
+    // fallbackPath: "/nonexistent",
+
     onMiss: (path) => {
-      console.log(`No route found for: ${path}`);
+      console.log(`No route found for: ${path}, redirecting to 404`);
     },
   },
 );
+
+// Use navigateAny for potentially invalid routes
+await router.navigateAny('/some/unknown/path'); // Will use fallback
+```
+
+#### Fallback Path Constraints
+
+The `fallbackPath` option has compile-time type checking with these rules:
+
+1. **Must exist in your routes**: TypeScript ensures the fallback path matches
+   one of your defined routes
+2. **Cannot be parameterized**: Fallback paths must be concrete (no `:param`
+   segments)
+3. **Type safety**: Prevents typos and ensures fallback routes are actually
+   available
+
+```typescript
+// ✅ Valid fallback configurations
+const router1 = createRouter(
+  [
+    { path: '/' },
+    { path: '/404' },
+  ] as const,
+  {
+    fallbackPath: '/', // Concrete route that exists
+  },
+);
+
+const router2 = createRouter(
+  [
+    { path: '/home' },
+    { path: '/error' },
+  ] as const,
+  {
+    fallbackPath: '/error', // Another concrete route
+  },
+);
+
+// ❌ Invalid - TypeScript will catch these
+const router3 = createRouter(
+  [
+    { path: '/user/:id' },
+  ] as const,
+  {
+    // fallbackPath: "/user/:id" // Error: Cannot use parameterized route
+    // fallbackPath: "/missing" // Error: Route doesn't exist
+  },
+);
+```
+
+### Runtime vs Compile-time Navigation
+
+Choose the right navigation method for your use case:
+
+```typescript
+const router = createRouter(
+  [
+    { path: '/user/:id' },
+    { path: '/search/:query' },
+  ] as const,
+);
+
+// Compile-time checked - preferred for known routes
+await router.navigate('/user/:id', { id: '123' });
+
+// Runtime navigation - use for dynamic scenarios
+const userInput = '/search/typescript';
+await router.navigateAny(userInput);
+
+// Click handler example
+document.addEventListener('click', async (e) => {
+  const link = e.target.closest('[data-route]');
+  if (link) {
+    e.preventDefault();
+    await router.navigateAny(link.getAttribute('href'));
+  }
+});
 ```
 
 ### Delayed Initialization
@@ -356,99 +536,34 @@ const router = createRouter(
 );
 ```
 
-### Strict Route State
+## Error Handling
+
+type-router throws errors for invalid paths and missing routes:
 
 ```typescript
-const state = router.getState();
-// state.route is typed as one of your defined routes
-// state.params is typed based on the current route
-```
+// Invalid paths (double slashes) throw immediately
+try {
+  await router.navigate('//invalid//path');
+} catch (error) {
+  console.error('Invalid path:', error.message);
+}
 
-## Browser Compatibility
+// Unknown routes without fallback throw errors
+try {
+  await router.navigate('/unknown');
+} catch (error) {
+  console.error('Route not found:', error.message);
+}
 
-type-router works in all modern browsers that support:
-
-- ES6+ (ES2015)
-- History API (for history mode)
-- `hashchange` event (for hash mode)
-
-## Examples
-
-### Basic SPA
-
-```typescript
-import { createRouter } from '@itaylor/type-router';
-
-const router = createRouter(
-  [
-    {
-      path: '/',
-      onEnter: () => renderHomePage(),
-    },
-    {
-      path: '/about',
-      onEnter: () => renderAboutPage(),
-    },
-    {
-      path: '/contact',
-      onEnter: () => renderContactPage(),
-    },
-  ] as const,
-);
-
-// Navigate on link clicks
-document.addEventListener('click', (e) => {
-  const link = (e.target as Element).closest('a[data-route]');
-  if (link) {
-    e.preventDefault();
-    const path = link.getAttribute('href')!;
-    router.navigate(path);
-  }
+// Use navigateAny with fallback for safe navigation
+const router = createRouter(routes, {
+  fallbackPath: '/404',
+  onMiss: (path) => console.log(`Redirecting ${path} to 404`),
 });
+
+await router.navigateAny('/unknown'); // Safe - uses fallback
 ```
-
-### With React (using a wrapper)
-
-```typescript
-function useRouter() {
-  const [state, setState] = useState(router.getState());
-
-  useEffect(() => {
-    return router.subscribe(setState);
-  }, []);
-
-  return {
-    ...state,
-    navigate: router.navigate,
-  };
-}
-
-function App() {
-  const { path, params, navigate } = useRouter();
-
-  return (
-    <div>
-      <button onClick={() => navigate('/user/:id', { id: '123' })}>
-        Go to User
-      </button>
-    </div>
-  );
-}
-```
-
-## Why type-router?
-
-- **True Type Safety**: Not just TypeScript support, but actual compile-time
-  route validation
-- **Zero Dependencies**: No bloat, just the routing you need
-- **Framework Agnostic**: Use with React, Vue, Svelte, or vanilla JavaScript
-- **Predictable**: Async navigation ensures consistent behavior across modes
-- **Simple**: Minimal API surface area, easy to learn and use
 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
