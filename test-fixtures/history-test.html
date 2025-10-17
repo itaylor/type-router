@@ -1,26 +1,26 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Type Router Test - History Mode</title>
-    </head>
-    <body>
-        <div id="output"></div>
-        <div id="navigation">
-            <a href="/" data-route>Home</a>
-            <a href="/about" data-route>About</a>
-            <a href="/user/123" data-route>User 123</a>
-            <a href="/user/456" data-route>User 456</a>
-            <a href="/post/tech/hello" data-route>Tech Post</a>
-            <a href="/profile/alice" data-route>Alice's Profile</a>
-            <a href="/profile/bob" data-route>Bob's Profile</a>
-            <a href="/nonexistent" data-route>404 Test</a>
-        </div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Type Router Test - History Mode</title>
+  </head>
+  <body>
+    <div id="output"></div>
+    <div id="navigation">
+      <a href="/" data-route>Home</a>
+      <a href="/about" data-route>About</a>
+      <a href="/user/123" data-route>User 123</a>
+      <a href="/user/456" data-route>User 456</a>
+      <a href="/post/tech/hello" data-route>Tech Post</a>
+      <a href="/profile/alice" data-route>Alice's Profile</a>
+      <a href="/profile/bob" data-route>Bob's Profile</a>
+      <a href="/nonexistent" data-route>404 Test</a>
+    </div>
 
-        <script type="module">
-            import { setupRouter } from "./dist/shared-routes.js";
-            setupRouter("history");
-        </script>
-    </body>
+    <script type="module">
+      import { setupRouter } from './dist/shared-routes.js';
+      setupRouter('history');
+    </script>
+  </body>
 </html>

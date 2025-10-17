@@ -1,3 +1,10 @@
+// --- path validation helpers ---
+type HasEmptySegment<S extends string> = S extends `${string}//${string}` ? true
+  : false;
+
+type ValidatePath<P extends string> = HasEmptySegment<P> extends true ? never
+  : P;
+
 // --- param parsing helpers ---
 type ParamKeys<S extends string> = S extends `${string}:${infer P}`
   ? P extends `${infer Key}/${infer Rest}` ? Key | ParamKeys<Rest>
@@ -10,13 +17,13 @@ export type ParamsFor<P extends string> = [ParamKeys<P>] extends [never]
 
 // --- route + factory ---
 export type Route<P extends string> = {
-  path: P;
+  path: ValidatePath<P>;
   onEnter?: (params: ParamsFor<P>) => void;
   onParamChange?: (params: ParamsFor<P>, prevParams: ParamsFor<P>) => void;
   onExit?: (params: ParamsFor<P>) => void;
 };
 
-export type RoutePath<R extends readonly Route<string>[]> = R[number]["path"];
+export type RoutePath<R extends readonly Route<string>[]> = R[number]['path'];
 
 // -------- new path-matching helpers --------
 type StripLeadingSlash<S extends string> = S extends `/${infer R}`
@@ -33,7 +40,7 @@ type WithOptionalTrailingSlash<S extends string> = S extends `${infer A}/`
 
 type Segments<S extends string> = StripLeadingSlash<S> extends
   `${infer A}/${infer B}` ? [A, ...Segments<B>]
-  : StripLeadingSlash<S> extends "" ? []
+  : StripLeadingSlash<S> extends '' ? []
   : [StripLeadingSlash<S>];
 
 type MatchSegments<
@@ -55,14 +62,21 @@ type IsConcreteMatch<S extends string, P extends string> = MatchSegments<
   Segments<StripTrailingSlash<P>>
 >;
 
-// For a union of patterns, accept S if it matches *any* member.
-type ConcretePathForUnion<Ps extends string, S extends string> = Ps extends any
-  ? IsConcreteMatch<S, Ps> extends true ? S
-  : never
-  : never;
+// Check if a path is concrete (contains no parameters like :id)
+export type IsConcretePath<S extends string> = S extends `${string}:${string}`
+  ? false
+  : true;
+
+// For a union of patterns, accept S if it matches *any* member AND is concrete
+type ConcretePathForUnion<Ps extends string, S extends string> =
+  IsConcretePath<S> extends true
+    ? Ps extends any ? IsConcreteMatch<S, Ps> extends true ? S
+      : never
+    : never
+    : never;
 
 export type Options<R extends readonly Route<string>[]> = {
-  urlType: "hash" | "history";
+  urlType: 'hash' | 'history';
   fallbackPath?: RoutePath<R>;
   autoInit?: boolean;
   onEnter?: (route: Route<string>, params: Record<string, string>) => void;
@@ -92,11 +106,11 @@ export type RouteState<R extends readonly Route<string>[]> = {
 // Overload 2: call with a concrete path that matches one of the patterns
 export type NavigateFn<R extends readonly Route<string>[]> = {
   <P extends WithOptionalTrailingSlash<RoutePath<R>>>(
-    path: P,
+    path: ValidatePath<P>,
     params: ParamsFor<P>,
   ): Promise<void>;
   <S extends string>(
-    path: ConcretePathForUnion<RoutePath<R>, S>,
+    path: ValidatePath<ConcretePathForUnion<RoutePath<R>, S>>,
   ): Promise<void>;
 };
 
@@ -114,9 +128,24 @@ export type Router<R extends readonly Route<string>[]> = {
 };
 
 const defaultOptions = {
-  urlType: "history",
+  urlType: 'history',
   autoInit: true,
 } as const;
+
+// Path validation error message
+const INVALID_PATH_ERROR = (path: string) => `Invalid path: ${path}`;
+
+// Path validation helper - rejects paths with empty segments
+function isValidPath(path: string): boolean {
+  // Check for consecutive slashes (empty segments)
+  return !path.includes('//');
+}
+
+function validatePath(path: string): void {
+  if (!isValidPath(path)) {
+    throw new Error(INVALID_PATH_ERROR(path));
+  }
+}
 
 export function createRouter<const R extends readonly Route<string>[]>(
   routes: R,
@@ -149,10 +178,12 @@ export function createRouter<const R extends readonly Route<string>[]>(
     if (!route) throw new Error(`No route found for path: ${path}`);
 
     return new Promise<void>((resolve) => {
-      if (urlType === "history") {
+      // Validate path before calling pushState to avoid browser errors
+      validatePath(pathStr);
+      if (urlType === 'history') {
         // For history mode: pushState doesn't trigger any events,
         // so we manually activate the route asynchronously
-        globalThis.history.pushState({}, "", pathStr);
+        globalThis.history.pushState({}, '', pathStr);
         setTimeout(() => {
           activateRoute(pathStr, route, params);
           resolve();
@@ -172,7 +203,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
   // navigateAny allows navigation to any string path without compile-time type checking
   // Useful for runtime navigation from user input, HTML links, external URLs, etc.
   function navigateAny(path: string): Promise<void> {
-    return navigate(path as any);
+    return (navigate as any)(path);
   }
 
   function computePath<P extends Path>(
@@ -186,13 +217,19 @@ export function createRouter<const R extends readonly Route<string>[]>(
     }
     return path.replace(
       /:(\w+)/g,
-      (_, key) => (params as any)[key] || "",
+      (_, key) => encodeURIComponent((params as any)[key] || ''),
     ) as ConcretePathForUnion<RoutePath<R>, typeof path>;
   }
 
   function getRouteWithParams(path: string): RouteWithParams<Path> {
     // Strip query string if present
-    const cleanPath = path.split("?")[0];
+    const cleanPath = path.split('?')[0];
+
+    // Validate the cleaned path
+    if (!isValidPath(cleanPath)) {
+      // Invalid paths are hard errors - don't use fallback or call onMiss
+      throw new Error(INVALID_PATH_ERROR(cleanPath));
+    }
 
     for (const [routePath, regex] of matchers) {
       const match = regex.exec(cleanPath);
@@ -206,7 +243,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
           [];
         const params: Record<string, string> = {};
         paramKeys.forEach((key, index) => {
-          params[key] = match[index + 1]; // +1 because match[0] is the full match
+          params[key] = decodeURIComponent(match[index + 1]); // +1 because match[0] is the full match
         });
 
         return {
@@ -241,7 +278,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
   }
 
   function getPath() {
-    if (urlType === "history") {
+    if (urlType === 'history') {
       const { pathname, search } = globalThis.location;
       return pathname + search;
     }
@@ -293,8 +330,10 @@ export function createRouter<const R extends readonly Route<string>[]>(
   function buildRouteMatchers(routes: R) {
     const matchers = new Map<string, RegExp>();
     for (const route of routes) {
+      // Validate route path at creation time
+      validatePath(route.path);
       const matcher = new RegExp(
-        `^${route.path.replace(/:[^/]+/g, "([^/]+)")}/?$`,
+        `^${route.path.replace(/:[^/]+/g, '([^/]+)')}/?$`,
       );
       matchers.set(route.path, matcher);
     }
@@ -306,7 +345,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
     // this will set the current route and params
     handleUrlChange(getPath());
 
-    const event = urlType === "history" ? "popstate" : "hashchange";
+    const event = urlType === 'history' ? 'popstate' : 'hashchange';
     globalThis.addEventListener(event, () => {
       handleUrlChange(getPath());
     });
