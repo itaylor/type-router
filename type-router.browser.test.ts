@@ -1,485 +1,400 @@
 /// <reference lib="deno.ns" />
 import { launch } from "jsr:@astral/astral";
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { transpile } from "https://deno.land/x/emit@0.31.0/mod.ts";
+
+import { type Router } from "./type-router.ts";
+import { testRoutes } from "./test-fixtures/shared-routes.ts";
+import { manualRoutes } from "./test-fixtures/manual-init-routes.ts";
 
 // Declare window properties that are added by the test setup
+// // Extend Window interface for our test utilities
+declare global {
+  interface Window {
+    testResults: string[];
+    log: (msg: string) => void;
+    router: Router<typeof testRoutes>;
+    manualRouter: Router<typeof manualRoutes>;
+    lastState: any;
+    lastManualState: any;
+    stateHistory: Array<{
+      path: string | null;
+      params: Record<string, string>;
+      routePath: string | undefined;
+    }>;
+  }
+}
+
+// Named localhost IPs for different test modes
+const HISTORY_MODE_IP = "127.0.0.1";
+const HASH_MODE_IP = "127.0.0.2";
+const MANUAL_INIT_IP = "127.0.0.3";
 
 async function setupTestServer() {
-  const server = Deno.serve({ port: 0 }, async (req) => {
+  const server = Deno.serve({ port: 0, hostname: "0.0.0.0" }, async (req) => {
     const url = new URL(req.url);
+    const host = req.headers.get("host")?.split(":")[0] || "127.0.0.1";
 
-    // Serve the TypeScript file as JavaScript
-    if (url.pathname === "/type-router.js") {
-      const tsCode = await Deno.readTextFile("./type-router.ts");
-      const result = await transpile(
-        new URL("file://" + Deno.cwd() + "/type-router.ts"),
-        {
-          load(specifier: string) {
-            if (specifier.endsWith("type-router.ts")) {
-              return Promise.resolve({
-                kind: "module",
-                specifier,
-                content: tsCode,
-              });
-            }
-            return Promise.resolve({ kind: "module", specifier, content: "" });
-          },
-        },
-      );
-      const jsCode = result.get("file://" + Deno.cwd() + "/type-router.ts") ||
-        "";
-      return new Response(jsCode, {
-        headers: { "Content-Type": "application/javascript" },
-      });
+    // Serve static files from test-fixtures
+    if (url.pathname.startsWith("/dist/")) {
+      try {
+        const content = await Deno.readTextFile(
+          `./test-fixtures${url.pathname}`,
+        );
+        return new Response(content, {
+          headers: { "Content-Type": "application/javascript" },
+        });
+      } catch {
+        return new Response("Not found", { status: 404 });
+      }
     }
 
-    // Serve the route TypeScript files as JavaScript
-    if (url.pathname === "/shared-routes.js") {
-      const tsCode = await Deno.readTextFile(
-        "./test-fixtures/shared-routes.ts",
-      );
-      const result = await transpile(
-        new URL("file://" + Deno.cwd() + "/test-fixtures/shared-routes.ts"),
-        {
-          load(specifier: string) {
-            if (specifier.endsWith("shared-routes.ts")) {
-              return Promise.resolve({
-                kind: "module",
-                specifier,
-                content: tsCode.replace(
-                  "../type-router.ts",
-                  "./type-router.js",
-                ),
-              });
-            }
-            return Promise.resolve({ kind: "module", specifier, content: "" });
-          },
-        },
-      );
-      const jsCode = result.get(
-        "file://" + Deno.cwd() + "/test-fixtures/shared-routes.ts",
-      ) || "";
-      return new Response(jsCode, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
+    // Serve different HTML files at root based on IP
+    if (url.pathname === "/") {
+      let htmlFile: string;
+      switch (host) {
+        case HISTORY_MODE_IP:
+          htmlFile = "./test-fixtures/history-test.html";
+          break;
+        case HASH_MODE_IP:
+          htmlFile = "./test-fixtures/hash-mode-test.html";
+          break;
+        case MANUAL_INIT_IP:
+          htmlFile = "./test-fixtures/manual-init-test.html";
+          break;
+        default:
+          htmlFile = "./test-fixtures/history-test.html";
+      }
 
-    if (url.pathname === "/manual-init-routes.js") {
-      const tsCode = await Deno.readTextFile(
-        "./test-fixtures/manual-init-routes.ts",
-      );
-      const result = await transpile(
-        new URL(
-          "file://" + Deno.cwd() + "/test-fixtures/manual-init-routes.ts",
-        ),
-        {
-          load(specifier: string) {
-            if (specifier.endsWith("manual-init-routes.ts")) {
-              return Promise.resolve({
-                kind: "module",
-                specifier,
-                content: tsCode.replace(
-                  "../type-router.ts",
-                  "./type-router.js",
-                ),
-              });
-            }
-            return Promise.resolve({ kind: "module", specifier, content: "" });
-          },
-        },
-      );
-      const jsCode = result.get(
-        "file://" + Deno.cwd() + "/test-fixtures/manual-init-routes.ts",
-      ) || "";
-      return new Response(jsCode, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
-
-    // Serve test fixture HTML files
-    if (url.pathname === "/" || url.pathname === "/history") {
-      const html = await Deno.readTextFile("./test-fixtures/history-test.html");
-      return new Response(html, {
-        headers: { "Content-Type": "text/html" },
-      });
-    }
-  
-
-    if (url.pathname === "/hash") {
-      const html = await Deno.readTextFile(
-        "./test-fixtures/hash-mode-test.html",
-      );
+      const html = await Deno.readTextFile(htmlFile);
       return new Response(html, {
         headers: { "Content-Type": "text/html" },
       });
     }
 
-    if (url.pathname === "/manual" || url.pathname === "/test") {
-      const html = await Deno.readTextFile(
-        "./test-fixtures/manual-init-test.html",
-      );
-      return new Response(html, {
-        headers: { "Content-Type": "text/html" },
-      });
-    }
-
-    // Default: serve history test for any other path
-    const html = await Deno.readTextFile("./test-fixtures/history-test.html");
-    return new Response(html, {
-      headers: { "Content-Type": "text/html" },
-    });
+    return new Response("Not found", { status: 404 });
   });
 
   return server;
 }
 
+// Test setup/teardown variables
+let server: any;
+let browser: any;
+
+Deno.test.beforeAll(async () => {
+  server = await setupTestServer();
+});
+
+Deno.test.beforeEach(async () => {
+  browser = await launch();
+});
+
+Deno.test.afterEach(async () => {
+  await browser?.close();
+});
+
+Deno.test.afterAll(async () => {
+  await server?.shutdown();
+});
+
+// Helper to create a page with a specific IP
+function createPage(ip = HISTORY_MODE_IP) {
+  return browser.newPage(`http://${ip}:${server.addr.port}/`);
+}
+
 Deno.test("type-router - basic navigation and lifecycle hooks", async () => {
-  const server = await setupTestServer();
-  const browser = await launch();
+  const page = await createPage(HISTORY_MODE_IP);
 
-  try {
-    const page = await browser.newPage(`http://localhost:${server.addr.port}/`);
-    
+  // Wait for router to initialize
+  await page.waitForFunction(() =>
+    window.testResults?.includes("ready:history")
+  );
 
-    // Wait for router to initialize
-    await page.waitForFunction(() =>
-      window.testResults?.includes("ready:history")
-    );
+  // First navigate to "/" explicitly to establish initial state
+  await page.evaluate(() => window.router.navigate("/"));
+  await page.waitForFunction(() => window.testResults?.includes("entered:/"));
 
-    // First navigate to "/" explicitly to establish initial state
-    await page.evaluate(() => window.router.navigate("/"));
-    await page.waitForFunction(() => window.testResults?.includes("entered:/"));
+  // Test basic navigation from "/" to "/about"
+  await page.evaluate(() => window.router.navigate("/about"));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/about")
+  );
 
-    // Test basic navigation from "/" to "/about"
-    await page.evaluate(() => window.router.navigate("/about"));
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/about")
-    );
+  const results1 = await page.evaluate(() => window.testResults);
+  // Now "/" was entered, then exited when navigating to "/about"
+  assertEquals(results1.includes("entered:/"), true);
+  assertEquals(results1.includes("global:exit:/"), true);
+  assertEquals(results1.includes("exited:/"), true);
+  assertEquals(results1.includes("global:enter:/about"), true);
+  assertEquals(results1.includes("entered:/about"), true);
 
-    const results1 = await page.evaluate(() => window.testResults);
-    // Now "/" was entered, then exited when navigating to "/about"
-    assertEquals(results1.includes("entered:/"), true);
-    assertEquals(results1.includes("global:exit:/"), true);
-    assertEquals(results1.includes("exited:/"), true);
-    assertEquals(results1.includes("global:enter:/about"), true);
-    assertEquals(results1.includes("entered:/about"), true);
+  // Test parameterized routes
+  await page.evaluate(() => window.router.navigate("/user/:id", { id: "123" }));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/user/123")
+  );
 
-    // Test parameterized routes
-    await page.evaluate(() =>
-      window.router.navigate("/user/:id", { id: "123" })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/user/123")
-    );
+  const state1 = await page.evaluate(() => window.lastState);
+  assertEquals(state1.path, "/user/123");
+  assertEquals(state1.params.id, "123");
 
-    const state1 = await page.evaluate(() => window.lastState);
-    assertEquals(state1.path, "/user/123");
-    assertEquals(state1.params.id, "123");
+  // Test parameter change (should NOT exit/enter, only paramChange)
+  await page.evaluate(() => window.router.navigate("/user/:id", { id: "456" }));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("paramChange:123->456")
+  );
 
-    // Test parameter change (should NOT exit/enter, only paramChange)
-    await page.evaluate(() =>
-      window.router.navigate("/user/:id", { id: "456" })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("paramChange:123->456")
-    );
+  const results2 = await page.evaluate(() => window.testResults);
+  assertEquals(results2.includes("paramChange:123->456"), true);
+  assertEquals(
+    results2.filter((r: string) => r === "exited:/user/123").length,
+    0,
+  );
+  assertEquals(
+    results2.filter((r: string) => r === "entered:/user/456").length,
+    0,
+  );
 
-    const results2 = await page.evaluate(() => window.testResults);
-    assertEquals(results2.includes("paramChange:123->456"), true);
-    assertEquals(
-      results2.filter((r: string) => r === "exited:/user/123").length,
-      0,
-    );
-    assertEquals(
-      results2.filter((r: string) => r === "entered:/user/456").length,
-      0,
-    );
+  // Test multiple parameters
+  await page.evaluate(() =>
+    window.router.navigate("/post/:category/:slug", {
+      category: "tech",
+      slug: "hello-world",
+    })
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/post/tech/hello-world")
+  );
 
-    // Test multiple parameters
-    await page.evaluate(() =>
-      window.router.navigate("/post/:category/:slug", {
-        category: "tech",
-        slug: "hello-world",
-      })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/post/tech/hello-world")
-    );
+  const state2 = await page.evaluate(() => window.lastState);
+  assertEquals(state2.path, "/post/tech/hello-world");
+  assertEquals(state2.params.category, "tech");
+  assertEquals(state2.params.slug, "hello-world");
 
-    const state2 = await page.evaluate(() => window.lastState);
-    assertEquals(state2.path, "/post/tech/hello-world");
-    assertEquals(state2.params.category, "tech");
-    assertEquals(state2.params.slug, "hello-world");
+  // Test concrete path navigation
+  await page.evaluate(() => window.router.navigate("/user/789"));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/user/789")
+  );
 
-    // Test concrete path navigation
-    await page.evaluate(() => window.router.navigate("/user/789"));
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/user/789")
-    );
+  const state3 = await page.evaluate(() => window.lastState);
+  assertEquals(state3.path, "/user/789");
+  assertEquals(state3.params.id, "789");
 
-    const state3 = await page.evaluate(() => window.lastState);
-    assertEquals(state3.path, "/user/789");
-    assertEquals(state3.params.id, "789");
+  // Test fallback route
+  await page.evaluate(() => window.router.navigateAny("/nonexistent"));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("missed:/nonexistent")
+  );
 
-    // Test fallback route
-    await page.evaluate(() => window.router.navigateAny("/nonexistent"));
-    await page.waitForFunction(() =>
-      window.testResults?.includes("missed:/nonexistent")
-    );
+  const results3 = await page.evaluate(() => window.testResults);
+  assertEquals(results3.includes("missed:/nonexistent"), true);
+  assertEquals(results3.includes("entered:/404"), true);
 
-    const results3 = await page.evaluate(() => window.testResults);
-    assertEquals(results3.includes("missed:/nonexistent"), true);
-    assertEquals(results3.includes("entered:/404"), true);
+  // Test browser back button
+  await page.evaluate(() => window.history.back());
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Test browser back button
-    await page.evaluate(() => window.history.back());
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  const stateAfterBack = await page.evaluate(() => window.lastState);
+  assertEquals(stateAfterBack.path, "/user/789");
 
-    const stateAfterBack = await page.evaluate(() => window.lastState);
-    assertEquals(stateAfterBack.path, "/user/789");
+  // Test computePath utility
+  const computed = await page.evaluate(() =>
+    window.router.computePath("/user/:id", { id: "computed" })
+  );
+  assertEquals(computed, "/user/computed");
 
-    // Test computePath utility
-    const computed = await page.evaluate(() =>
-      window.router.computePath("/user/:id", { id: "computed" })
-    );
-    assertEquals(computed, "/user/computed");
-
-    // Test state subscription
-    const stateHistory = await page.evaluate(() => window.stateHistory);
-    assertEquals(stateHistory.length > 0, true);
-    assertEquals(stateHistory[stateHistory.length - 1].path, "/user/789");
-  } finally {
-    await browser.close();
-    await server.shutdown();
-  }
+  // Test state subscription
+  const stateHistory = await page.evaluate(() => window.stateHistory);
+  assertEquals(stateHistory.length > 0, true);
+  assertEquals(stateHistory[stateHistory.length - 1].path, "/user/789");
 });
 
 Deno.test("type-router - hash mode routing", async () => {
-  const server = await setupTestServer();
-  const browser = await launch();
+  const page = await createPage(HASH_MODE_IP);
 
-  try {
-    const page = await browser.newPage(
-      `http://localhost:${server.addr.port}/hash`,
-    );
+  // Wait for router to initialize
+  await page.waitForFunction(() => window.testResults?.includes("ready:hash"));
 
-    // Wait for router to initialize
-    await page.waitForFunction(() =>
-      window.testResults?.includes("ready:hash")
-    );
+  // Navigate using hash mode
+  await page.evaluate(() => window.router.navigate("/about"));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/about")
+  );
 
-    // Navigate using hash mode
-    await page.evaluate(() => window.router.navigate("/about"));
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/about")
-    );
+  const hash1 = await page.evaluate(() => window.location.hash);
+  assertEquals(hash1, "#/about");
 
-    const hash1 = await page.evaluate(() => window.location.hash);
-    assertEquals(hash1, "#/about");
+  // Test hash navigation with global hooks
+  const results1 = await page.evaluate(() => window.testResults);
+  assertEquals(results1.includes("global:enter:/about"), true);
+  assertEquals(results1.includes("entered:/about"), true);
 
-    // Test hash navigation with global hooks
-    const results1 = await page.evaluate(() => window.testResults);
-    assertEquals(results1.includes("global:enter:/about"), true);
-    assertEquals(results1.includes("entered:/about"), true);
+  // Navigate to user route
+  await page.evaluate(() => window.router.navigate("/user/:id", { id: "123" }));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/user/123")
+  );
 
-    // Navigate to user route
-    await page.evaluate(() =>
-      window.router.navigate("/user/:id", { id: "123" })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/user/123")
-    );
+  const hash2 = await page.evaluate(() => window.location.hash);
+  assertEquals(hash2, "#/user/123");
 
-    const hash2 = await page.evaluate(() => window.location.hash);
-    assertEquals(hash2, "#/user/123");
+  const results2 = await page.evaluate(() => window.testResults);
+  assertEquals(results2.includes("global:exit:/about"), true);
+  assertEquals(results2.includes("exited:/about"), true);
+  assertEquals(results2.includes("global:enter:/user/:id"), true);
+  assertEquals(results2.includes("entered:/user/123"), true);
 
-    const results2 = await page.evaluate(() => window.testResults);
-    assertEquals(results2.includes("global:exit:/about"), true);
-    assertEquals(results2.includes("exited:/about"), true);
-    assertEquals(results2.includes("global:enter:/user/:id"), true);
-    assertEquals(results2.includes("entered:/user/123"), true);
+  // Test parameterized route in hash mode
+  await page.evaluate(() =>
+    window.router.navigate("/profile/:username", { username: "alice" })
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/profile/alice")
+  );
 
-    // Test parameterized route in hash mode
-    await page.evaluate(() =>
-      window.router.navigate("/profile/:username", { username: "alice" })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/profile/alice")
-    );
+  const hash3 = await page.evaluate(() => window.location.hash);
+  assertEquals(hash3, "#/profile/alice");
 
-    const hash3 = await page.evaluate(() => window.location.hash);
-    assertEquals(hash3, "#/profile/alice");
+  const state = await page.evaluate(() => window.lastState);
+  assertEquals(state.path, "/profile/alice");
+  assertEquals(state.params.username, "alice");
 
-    const state = await page.evaluate(() => window.lastState);
-    assertEquals(state.path, "/profile/alice");
-    assertEquals(state.params.username, "alice");
+  // Test param change in hash mode
+  await page.evaluate(() =>
+    window.router.navigate("/profile/:username", { username: "bob" })
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes("paramChange:alice->bob")
+  );
 
-    // Test param change in hash mode
-    await page.evaluate(() =>
-      window.router.navigate("/profile/:username", { username: "bob" })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("paramChange:alice->bob")
-    );
+  const results3 = await page.evaluate(() => window.testResults);
+  assertEquals(results3.includes("paramChange:alice->bob"), true);
 
-    const results3 = await page.evaluate(() => window.testResults);
-    assertEquals(results3.includes("paramChange:alice->bob"), true);
+  // Test clicking hash links (hash mode doesn't intercept clicks)
+  const hashLink = await page.$('a[href="#/post/tech/hello"]');
+  await hashLink!.click();
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/post/tech/hello")
+  );
 
-    // Test clicking hash links (hash mode doesn't intercept clicks)
-    const hashLink = await page.$('a[href="#/post/tech/hello"]');
-    await hashLink!.click();
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/post/tech/hello")
-    );
-
-    const hash4 = await page.evaluate(() => window.location.hash);
-    assertEquals(hash4, "#/post/tech/hello");
-  } finally {
-    await browser.close();
-    await server.shutdown();
-  }
+  const hash4 = await page.evaluate(() => window.location.hash);
+  assertEquals(hash4, "#/post/tech/hello");
 });
 
 Deno.test("type-router - manual initialization", async () => {
-  const server = await setupTestServer();
-  const browser = await launch();
+  const page = await createPage(MANUAL_INIT_IP);
 
-  try {
-    const page = await browser.newPage(
-      `http://localhost:${server.addr.port}/test`,
-    );
+  // Wait for router to be created (but not initialized)
+  await page.waitForFunction(() =>
+    window.testResults?.includes("manual-created")
+  );
 
-    // Wait for router to be created (but not initialized)
-    await page.waitForFunction(() =>
-      window.testResults?.includes("manual-created")
-    );
+  // Verify initial state before init
+  const beforeInit = await page.evaluate(() => window.testResults);
+  assertEquals(beforeInit.includes("initial-state-path:null"), true);
+  assertEquals(beforeInit.includes("initial-state-route:null"), true);
+  assertEquals(beforeInit.includes("manual:entered:/test"), false);
 
-    // Verify initial state before init
-    const beforeInit = await page.evaluate(() => window.testResults);
-    assertEquals(beforeInit.includes("initial-state-path:null"), true);
-    assertEquals(beforeInit.includes("initial-state-route:null"), true);
-    assertEquals(beforeInit.includes("manual:entered:/test"), false);
+  // Click the init button
+  const initBtn = await page.$("#init-btn");
+  await initBtn!.click();
+  await page.waitForFunction(() =>
+    window.testResults?.includes("manual-initialized")
+  );
 
-    // Click the init button
-    const initBtn = await page.$("#init-btn");
-    await initBtn!.click();
-    await page.waitForFunction(() =>
-      window.testResults?.includes("manual-initialized")
-    );
+  // Verify route was activated after init
+  const afterInit = await page.evaluate(() => window.testResults);
+  assertEquals(afterInit.includes("manual:global:enter:/test"), true);
+  assertEquals(afterInit.includes("manual:entered:/test"), true);
+  assertEquals(afterInit.includes("state-updated:/test"), true);
 
-    // Verify route was activated after init
-    const afterInit = await page.evaluate(() => window.testResults);
-    assertEquals(afterInit.includes("manual:global:enter:/test"), true);
-    assertEquals(afterInit.includes("manual:entered:/test"), true);
-    assertEquals(afterInit.includes("state-updated:/test"), true);
+  // Test that navigation works after init
+  const navigateBtn = await page.$("#navigate-btn");
+  await navigateBtn!.click();
+  await page.waitForFunction(() =>
+    window.testResults?.includes("manual:entered:/dashboard")
+  );
 
-    // Test that navigation works after init
-    const navigateBtn = await page.$("#navigate-btn");
-    await navigateBtn!.click();
-    await page.waitForFunction(() =>
-      window.testResults?.includes("manual:entered:/dashboard")
-    );
+  const results = await page.evaluate(() => window.testResults);
+  assertEquals(results.includes("manual:global:exit:/test"), true);
+  assertEquals(results.includes("manual:exited:/test"), true);
+  assertEquals(results.includes("manual:global:enter:/dashboard"), true);
+  assertEquals(results.includes("manual:entered:/dashboard"), true);
+  assertEquals(results.includes("state-updated:/dashboard"), true);
 
-    const results = await page.evaluate(() => window.testResults);
-    assertEquals(results.includes("manual:global:exit:/test"), true);
-    assertEquals(results.includes("manual:exited:/test"), true);
-    assertEquals(results.includes("manual:global:enter:/dashboard"), true);
-    assertEquals(results.includes("manual:entered:/dashboard"), true);
-    assertEquals(results.includes("state-updated:/dashboard"), true);
+  // Test navigation with params after manual init
+  await page.evaluate(() =>
+    window.manualRouter.navigate("/settings/:section", {
+      section: "privacy",
+    })
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes("manual:entered:/settings/privacy")
+  );
 
-    // Test navigation with params after manual init
-    await page.evaluate(() =>
-      window.manualRouter.navigate("/settings/:section", {
-        section: "privacy",
-      })
-    );
-    await page.waitForFunction(() =>
-      window.testResults?.includes("manual:entered:/settings/privacy")
-    );
-
-    const state = await page.evaluate(() => window.lastManualState);
-    assertEquals(state.path, "/settings/privacy");
-    assertEquals(state.params.section, "privacy");
-  } finally {
-    await browser.close();
-    await server.shutdown();
-  }
+  const state = await page.evaluate(() => window.lastManualState);
+  assertEquals(state.path, "/settings/privacy");
+  assertEquals(state.params.section, "privacy");
 });
 
 Deno.test("type-router - trailing slashes", async () => {
-  const server = await setupTestServer();
-  const browser = await launch();
+  const page = await createPage(HISTORY_MODE_IP);
 
-  try {
-    const page = await browser.newPage(`http://localhost:${server.addr.port}/`);
+  await page.waitForFunction(() =>
+    window.testResults?.includes("ready:history")
+  );
 
-    await page.waitForFunction(() =>
-      window.testResults?.includes("ready:history")
-    );
+  // Test that routes work with and without trailing slashes
+  await page.evaluate(() => window.router.navigate("/about/"));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/about")
+  );
 
-    // Test that routes work with and without trailing slashes
-    await page.evaluate(() => window.router.navigate("/about/"));
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/about")
-    );
+  const state1 = await page.evaluate(() => window.lastState);
+  assertEquals(state1.route.path, "/about");
 
-    const state1 = await page.evaluate(() => window.lastState);
-    assertEquals(state1.route.path, "/about");
+  await page.evaluate(() => window.router.navigate("/user/123/"));
+  await page.waitForFunction(() =>
+    window.testResults?.includes("entered:/user/123")
+  );
 
-    await page.evaluate(() => window.router.navigate("/user/123/"));
-    await page.waitForFunction(() =>
-      window.testResults?.includes("entered:/user/123")
-    );
-
-    const state2 = await page.evaluate(() => window.lastState);
-    assertEquals(state2.params.id, "123");
-    assertEquals(state2.route.path, "/user/:id");
-  } finally {
-    await browser.close();
-    await server.shutdown();
-  }
+  const state2 = await page.evaluate(() => window.lastState);
+  assertEquals(state2.params.id, "123");
+  assertEquals(state2.route.path, "/user/:id");
 });
 
 Deno.test("type-router - getState and subscribe", async () => {
-  const server = await setupTestServer();
-  const browser = await launch();
+  const page = await createPage(HISTORY_MODE_IP);
 
-  try {
-    const page = await browser.newPage(`http://localhost:${server.addr.port}/`);
+  await page.waitForFunction(() =>
+    window.testResults?.includes("ready:history")
+  );
 
-    await page.waitForFunction(() =>
-      window.testResults?.includes("ready:history")
-    );
+  // Navigate to "/" first to establish state
+  await page.evaluate(() => window.router.navigate("/"));
+  await page.waitForFunction(() => window.stateHistory?.length >= 1);
 
-    // Navigate to "/" first to establish state
-    await page.evaluate(() => window.router.navigate("/"));
-    await page.waitForFunction(() => window.stateHistory?.length >= 1);
+  // Test getState returns current state
+  const initialState = await page.evaluate(() => window.router.getState());
+  assertEquals(initialState.path, "/");
+  assertEquals(initialState.route?.path, "/");
 
-    // Test getState returns current state
-    const initialState = await page.evaluate(() => window.router.getState());
-    assertEquals(initialState.path, "/");
-    assertEquals(initialState.route?.path, "/");
+  // Navigate and check state history from subscription
+  await page.evaluate(() => window.router.navigate("/about"));
+  await page.waitForFunction(() => window.stateHistory?.length >= 2);
 
-    // Navigate and check state history from subscription
-    await page.evaluate(() => window.router.navigate("/about"));
-    await page.waitForFunction(() => window.stateHistory?.length >= 2);
+  await page.evaluate(() => window.router.navigate("/user/42"));
+  await page.waitForFunction(() => window.stateHistory?.length >= 3);
 
-    await page.evaluate(() => window.router.navigate("/user/42"));
-    await page.waitForFunction(() => window.stateHistory?.length >= 3);
+  const stateHistory = await page.evaluate(() => window.stateHistory);
+  assertEquals(stateHistory[stateHistory.length - 3].path, "/");
+  assertEquals(stateHistory[stateHistory.length - 2].path, "/about");
+  assertEquals(stateHistory[stateHistory.length - 1].path, "/user/42");
+  assertEquals(stateHistory[stateHistory.length - 1].params.id, "42");
 
-    const stateHistory = await page.evaluate(() => window.stateHistory);
-    assertEquals(stateHistory[stateHistory.length - 3].path, "/");
-    assertEquals(stateHistory[stateHistory.length - 2].path, "/about");
-    assertEquals(stateHistory[stateHistory.length - 1].path, "/user/42");
-    assertEquals(stateHistory[stateHistory.length - 1].params.id, "42");
-
-    // Verify getState returns latest
-    const currentState = await page.evaluate(() => window.router.getState());
-    assertEquals(currentState.path, "/user/42");
-    assertEquals(currentState.params.id, "42");
-  } finally {
-    await browser.close();
-    await server.shutdown();
-  }
+  // Verify getState returns latest
+  const currentState = await page.evaluate(() => window.router.getState());
+  assertEquals(currentState.path, "/user/42");
+  assertEquals(currentState.params.id, "42");
 });

@@ -1,67 +1,57 @@
-import {
-  createRouter,
-  makeRoute,
-  type Route,
-  type RoutePath,
-} from "../type-router.ts";
+import { createRouter, makeRoute } from "../type-router.ts";
 
-// Extend Window interface for our test utilities
-declare global {
-  interface Window {
-    testResults: string[];
-    log: (msg: string) => void;
-    router: ReturnType<typeof createRouter<typeof testRoutes>>;
-    lastState: any;
-    stateHistory: Array<{
-      path: string | null;
-      params: Record<string, string>;
-      routePath: string | undefined;
-    }>;
-  }
-}
+// Initialize window properties at module level so they can be used in route definitions
+window.testResults = window.testResults || [];
+window.log = window.log || ((msg: string) => {
+  window.testResults.push(msg);
+  console.log(msg);
+});
+
+// Destructure for cleaner code
+const { log } = window;
 
 // Define shared test routes with proper typing
 export const testRoutes = [
   makeRoute({
     path: "/",
-    onEnter: () => window.log("entered:/"),
-    onExit: () => window.log("exited:/"),
+    onEnter: () => log("entered:/"),
+    onExit: () => log("exited:/"),
   }),
   makeRoute({
     path: "/about",
-    onEnter: () => window.log("entered:/about"),
-    onExit: () => window.log("exited:/about"),
+    onEnter: () => log("entered:/about"),
+    onExit: () => log("exited:/about"),
   }),
   makeRoute({
     path: "/user/:id",
-    onEnter: (params) => window.log("entered:/user/" + params.id),
-    onExit: (params) => window.log("exited:/user/" + params.id),
+    onEnter: (params) => log("entered:/user/" + params.id),
+    onExit: (params) => log("exited:/user/" + params.id),
     onParamChange: (params, prev) =>
-      window.log("paramChange:" + prev.id + "->" + params.id),
+      log("paramChange:" + prev.id + "->" + params.id),
   }),
   makeRoute({
     path: "/post/:category/:slug",
     onEnter: (params) =>
-      window.log("entered:/post/" + params.category + "/" + params.slug),
+      log("entered:/post/" + params.category + "/" + params.slug),
     onExit: (params) =>
-      window.log("exited:/post/" + params.category + "/" + params.slug),
+      log("exited:/post/" + params.category + "/" + params.slug),
   }),
   makeRoute({
     path: "/profile/:username",
-    onEnter: (params) => window.log("entered:/profile/" + params.username),
-    onExit: (params) => window.log("exited:/profile/" + params.username),
+    onEnter: (params) => log("entered:/profile/" + params.username),
+    onExit: (params) => log("exited:/profile/" + params.username),
     onParamChange: (params, prev) =>
-      window.log("paramChange:" + prev.username + "->" + params.username),
+      log("paramChange:" + prev.username + "->" + params.username),
   }),
   makeRoute({
     path: "/404",
-    onEnter: () => window.log("entered:/404"),
+    onEnter: () => log("entered:/404"),
   }),
 ] as const;
 
 // Setup function that works for both hash and history modes
 export function setupRouter(mode: "hash" | "history" = "history") {
-  // Initialize logging
+  // Re-initialize logging for clean test state
   window.testResults = [];
   window.log = (msg: string) => {
     window.testResults.push(msg);
@@ -77,9 +67,9 @@ export function setupRouter(mode: "hash" | "history" = "history") {
   const router = createRouter(testRoutes, {
     urlType: mode,
     fallbackPath: "/404",
-    onMiss: (path) => window.log("missed:" + path),
-    onEnter: (route, params) => window.log("global:enter:" + route.path),
-    onExit: (route, params) => window.log("global:exit:" + route.path),
+    onMiss: (path) => log("missed:" + path),
+    onEnter: (route) => log("global:enter:" + route.path),
+    onExit: (route) => log("global:exit:" + route.path),
   });
 
   // Make router globally accessible
@@ -114,5 +104,5 @@ export function setupRouter(mode: "hash" | "history" = "history") {
     });
   }
 
-  window.log("ready:" + mode);
+  log("ready:" + mode);
 }

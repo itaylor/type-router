@@ -1,42 +1,43 @@
 import { createRouter, makeRoute } from "../type-router.ts";
 
-// Extend Window interface for our test utilities
-declare global {
-  interface globalThis {
-    testResults: string[];
-    log: (msg: string) => void;
-    lastManualState: any;
-  }
-}
+// Initialize window properties at module level so they can be used in route definitions
+window.testResults = window.testResults || [];
+window.lastManualState = window.lastManualState || null;
+window.log = window.log || ((msg: string) => {
+  window.testResults.push(msg);
+  console.log(msg);
+});
+
+// Destructure for cleaner code
+const { log, lastManualState, testResults } = window;
 
 // Define manual init test routes with proper typing
 export const manualRoutes = [
   makeRoute({
     path: "/test",
-    onEnter: () => window.log("manual:entered:/test"),
-    onExit: () => window.log("manual:exited:/test"),
+    onEnter: () => log("manual:entered:/test"),
+    onExit: () => log("manual:exited:/test"),
   }),
   makeRoute({
     path: "/dashboard",
-    onEnter: () => window.log("manual:entered:/dashboard"),
-    onExit: () => window.log("manual:exited:/dashboard"),
+    onEnter: () => log("manual:entered:/dashboard"),
+    onExit: () => log("manual:exited:/dashboard"),
   }),
   makeRoute({
     path: "/settings/:section",
-    onEnter: (params) =>
-      window.log("manual:entered:/settings/" + params.section),
+    onEnter: (params) => log("manual:entered:/settings/" + params.section),
   }),
 ] as const;
 
 export const manualRouterOptions = {
   autoInit: false,
-  onEnter: (route: any) => window.log("manual:global:enter:" + route.path),
-  onExit: (route: any) => window.log("manual:global:exit:" + route.path),
+  onEnter: (route: any) => log("manual:global:enter:" + route.path),
+  onExit: (route: any) => log("manual:global:exit:" + route.path),
 };
 
 // Setup function to initialize the manual router and attach handlers
 export function setupManualRouter() {
-  // Initialize logging
+  // Re-initialize logging for clean test state
   window.testResults = [];
   window.log = (msg: string) => {
     window.testResults.push(msg);
@@ -50,13 +51,14 @@ export function setupManualRouter() {
 
   // Create router with manual init (autoInit: false)
   const manualRouter = createRouter(manualRoutes, manualRouterOptions);
+  window.manualRouter = manualRouter;
 
-  window.log("manual-created");
+  log("manual-created");
 
   // Subscribe to state changes
   manualRouter.subscribe((state) => {
     window.lastManualState = state;
-    window.log("state-updated:" + (state.path || "null"));
+    log("state-updated:" + (state.path || "null"));
   });
 
   // Setup button handlers
@@ -68,7 +70,7 @@ export function setupManualRouter() {
   if (initBtn) {
     initBtn.addEventListener("click", () => {
       manualRouter.init();
-      window.log("manual-initialized");
+      log("manual-initialized");
       initBtn.disabled = true;
       if (navigateBtn) {
         navigateBtn.disabled = false;
@@ -84,6 +86,6 @@ export function setupManualRouter() {
 
   // Check initial state
   const initialState = manualRouter.getState();
-  window.log("initial-state-path:" + (initialState.path || "null"));
-  window.log("initial-state-route:" + (initialState.route ? "exists" : "null"));
+  log("initial-state-path:" + (initialState.path || "null"));
+  log("initial-state-route:" + (initialState.route ? "exists" : "null"));
 }
