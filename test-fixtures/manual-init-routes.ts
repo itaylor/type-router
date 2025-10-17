@@ -14,6 +14,11 @@ const { log, lastManualState, testResults } = window;
 // Define manual init test routes with proper typing
 export const manualRoutes = [
   makeRoute({
+    path: "/",
+    onEnter: () => log("manual:entered:/"),
+    onExit: () => log("manual:exited:/"),
+  }),
+  makeRoute({
     path: "/test",
     onEnter: () => log("manual:entered:/test"),
     onExit: () => log("manual:exited:/test"),

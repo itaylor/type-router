@@ -2,9 +2,9 @@
 import { launch } from "jsr:@astral/astral";
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
-import { type Router } from "./type-router.ts";
-import { testRoutes } from "./test-fixtures/shared-routes.ts";
-import { manualRoutes } from "./test-fixtures/manual-init-routes.ts";
+import type { Router } from "./type-router.ts";
+import type { testRoutes } from "./test-fixtures/shared-routes.ts";
+import type { manualRoutes } from "./test-fixtures/manual-init-routes.ts";
 
 // Declare window properties that are added by the test setup
 // // Extend Window interface for our test utilities
@@ -78,22 +78,16 @@ async function setupTestServer() {
 }
 
 // Test setup/teardown variables
-let server: any;
+let server = await setupTestServer();
 let browser: any;
 
-Deno.test.beforeAll(async () => {
-  server = await setupTestServer();
-});
-
 Deno.test.beforeEach(async () => {
+  server = await setupTestServer();
   browser = await launch();
 });
 
 Deno.test.afterEach(async () => {
   await browser?.close();
-});
-
-Deno.test.afterAll(async () => {
   await server?.shutdown();
 });
 
@@ -208,6 +202,7 @@ Deno.test("type-router - basic navigation and lifecycle hooks", async () => {
   const stateHistory = await page.evaluate(() => window.stateHistory);
   assertEquals(stateHistory.length > 0, true);
   assertEquals(stateHistory[stateHistory.length - 1].path, "/user/789");
+  await page.close();
 });
 
 Deno.test("type-router - hash mode routing", async () => {
@@ -280,21 +275,23 @@ Deno.test("type-router - hash mode routing", async () => {
 
   const hash4 = await page.evaluate(() => window.location.hash);
   assertEquals(hash4, "#/post/tech/hello");
+  await page.close();
 });
 
 Deno.test("type-router - manual initialization", async () => {
   const page = await createPage(MANUAL_INIT_IP);
 
   // Wait for router to be created (but not initialized)
-  await page.waitForFunction(() =>
-    window.testResults?.includes("manual-created")
+  await page.waitForFunction(
+    () => window.testResults?.includes("manual-created"),
+    { timeout: 3000 },
   );
 
   // Verify initial state before init
   const beforeInit = await page.evaluate(() => window.testResults);
   assertEquals(beforeInit.includes("initial-state-path:null"), true);
   assertEquals(beforeInit.includes("initial-state-route:null"), true);
-  assertEquals(beforeInit.includes("manual:entered:/test"), false);
+  assertEquals(beforeInit.includes("manual:entered:/"), false);
 
   // Click the init button
   const initBtn = await page.$("#init-btn");
@@ -305,9 +302,9 @@ Deno.test("type-router - manual initialization", async () => {
 
   // Verify route was activated after init
   const afterInit = await page.evaluate(() => window.testResults);
-  assertEquals(afterInit.includes("manual:global:enter:/test"), true);
-  assertEquals(afterInit.includes("manual:entered:/test"), true);
-  assertEquals(afterInit.includes("state-updated:/test"), true);
+  assertEquals(afterInit.includes("manual:global:enter:/"), true);
+  assertEquals(afterInit.includes("manual:entered:/"), true);
+  assertEquals(afterInit.includes("state-updated:/"), true);
 
   // Test that navigation works after init
   const navigateBtn = await page.$("#navigate-btn");
@@ -317,8 +314,8 @@ Deno.test("type-router - manual initialization", async () => {
   );
 
   const results = await page.evaluate(() => window.testResults);
-  assertEquals(results.includes("manual:global:exit:/test"), true);
-  assertEquals(results.includes("manual:exited:/test"), true);
+  assertEquals(results.includes("manual:global:exit:/"), true);
+  assertEquals(results.includes("manual:exited:/"), true);
   assertEquals(results.includes("manual:global:enter:/dashboard"), true);
   assertEquals(results.includes("manual:entered:/dashboard"), true);
   assertEquals(results.includes("state-updated:/dashboard"), true);
@@ -336,6 +333,8 @@ Deno.test("type-router - manual initialization", async () => {
   const state = await page.evaluate(() => window.lastManualState);
   assertEquals(state.path, "/settings/privacy");
   assertEquals(state.params.section, "privacy");
+
+  await page.close();
 });
 
 Deno.test("type-router - trailing slashes", async () => {
@@ -362,6 +361,8 @@ Deno.test("type-router - trailing slashes", async () => {
   const state2 = await page.evaluate(() => window.lastState);
   assertEquals(state2.params.id, "123");
   assertEquals(state2.route.path, "/user/:id");
+
+  await page.close();
 });
 
 Deno.test("type-router - getState and subscribe", async () => {
@@ -397,4 +398,6 @@ Deno.test("type-router - getState and subscribe", async () => {
   const currentState = await page.evaluate(() => window.router.getState());
   assertEquals(currentState.path, "/user/42");
   assertEquals(currentState.params.id, "42");
+
+  await page.close();
 });

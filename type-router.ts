@@ -360,7 +360,7 @@ export function makeRoute<P extends string>(route: Route<P>): Route<P> {
 // router.navigate("/profile/bob");
 // router.navigate("/");
 
-// Shouldn't work
+// // Shouldn't work
 // router.navigate('/profile/:user', { dude: "bob" }); // type error: Object literal may only specify known properties, and 'dude' does not exist in type 'Record<"user", string>'. (ts 2353)
 // router.navigate('/somewhere'); // type error Argument of type '"/somewhere"' is not assignable to parameter of type '"/home" | "/profile/:user"'. (ts 2345)
 // router.navigate("/profile/:user/barf", { user: "bob" });
