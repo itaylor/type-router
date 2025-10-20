@@ -2,7 +2,8 @@
 type HasEmptySegment<S extends string> = S extends `${string}//${string}` ? true
   : false;
 
-type ValidatePath<P extends string> = HasEmptySegment<P> extends true ? never
+export type ValidatePath<P extends string> = HasEmptySegment<P> extends true
+  ? never
   : P;
 
 // --- param parsing helpers ---
@@ -34,8 +35,8 @@ type StripTrailingSlash<S extends string> = S extends `${infer A}/`
   ? StripTrailingSlash<A>
   : S;
 
-type WithOptionalTrailingSlash<S extends string> = S extends `${infer A}/`
-  ? S | A
+export type WithOptionalTrailingSlash<S extends string> = S extends
+  `${infer A}/` ? S | A
   : S | `${S}/`;
 
 type Segments<S extends string> = StripLeadingSlash<S> extends
@@ -68,7 +69,7 @@ export type IsConcretePath<S extends string> = S extends `${string}:${string}`
   : true;
 
 // For a union of patterns, accept S if it matches *any* member AND is concrete
-type ConcretePathForUnion<Ps extends string, S extends string> =
+export type ConcretePathForUnion<Ps extends string, S extends string> =
   IsConcretePath<S> extends true
     ? Ps extends any ? IsConcreteMatch<S, Ps> extends true ? S
       : never
@@ -310,8 +311,11 @@ export function createRouter<const R extends readonly Route<string>[]>(
       if (currRoute === route) {
         options.onParamChange?.(route, params, currParams);
         route.onParamChange?.(params, currParams);
-        currState.params = params;
-        currState.path = path;
+        currState = {
+          ...currState,
+          params,
+          path,
+        };
         subscribers.forEach((subscriber) => subscriber(currState));
         return;
       }
