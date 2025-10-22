@@ -9,7 +9,8 @@ powerful API.
 - 🎯 **Robust Type-Safety**: Full TypeScript support with automatic parameter
   type inference
 - 🪶 **Lightweight**: Zero dependencies, ~2KB minified
-- 🔄 **Flexible Routing**: Support for both hash-based and history-based routing
+- 🔄 **Flexible Routing**: Hash-based routing by default with history-based
+  routing available
 - 🎨 **Framework Agnostic**: Works with any UI framework or vanilla JavaScript
 - 🪝 **Lifecycle Hooks**: Route enter/exit/change callbacks for fine-grained
   control
@@ -126,18 +127,74 @@ router.navigate('/product/:category/:id', {
 type-router supports two URL modes:
 
 ```typescript
-// History mode (default) - Uses HTML5 History API
+// Hash mode (default) - Works everywhere, no server config needed!
+// URLs look like: #/path/to/route
+const hashRouter = createRouter(routes); // Uses hash mode by default
+
+// History mode - Clean URLs, requires server configuration
 // URLs look like: /path/to/route
 const historyRouter = createRouter(routes, {
   urlType: 'history',
 });
+```
 
-// Hash mode - Uses URL hash
-// URLs look like: #/path/to/route
-const hashRouter = createRouter(routes, {
-  urlType: 'hash',
+## Routing Modes
+
+### Hash Mode (Default) 🎯
+
+Hash mode is the default because it alway works everywhere:
+
+```typescript
+// Hash mode - no configuration needed!
+const router = createRouter(routes); // Uses hash mode by default
+```
+
+**Benefits:**
+
+- ✅ **Zero server setup** - Works on GitHub Pages, Netlify, Vercel, S3, CDNs
+- ✅ **No 404 errors** - Users can directly visit `yoursite.com/#/users/123`
+- ✅ **File:// URLs work** - Perfect for local development and Electron apps
+- ✅ **Instant deployment** - Upload files anywhere and routing works
+- ✅ **Great for demos** - CodeSandbox, JSFiddle, static demos work immediately
+
+**URLs look like:** `https://yoursite.com/#/users/123`
+
+### History Mode
+
+For clean URLs when you have server control:
+
+```typescript
+const router = createRouter(routes, {
+  urlType: 'history',
 });
 ```
+
+**Benefits:**
+
+- ✅ **Clean URLs** - `https://yoursite.com/users/123` (no hash)
+- ✅ **SEO friendly** - Traditional URL structure
+- ✅ **Server-side rendering** compatible
+
+**Requirements:**
+
+- ❗ **Server configuration needed** - Must serve `index.html` for all routes
+- ❗ **Hosting limitations** - Not all static hosts support this easily
+
+### When to Use Each
+
+**Choose Hash Mode (default) when:**
+
+- Building a client-only SPA
+- Using static hosting (GitHub Pages, Netlify, etc.)
+- Want zero configuration
+- Rapid prototyping or demos
+- Building desktop apps with Electron
+
+**Choose History Mode when:**
+
+- Clean URLs are critical
+- You control the server
+- SEO is a primary concern
 
 ## API Reference
 
@@ -155,7 +212,7 @@ Creates a new router instance.
 
 | Option          | Type                  | Default     | Description                                                                                             |
 | --------------- | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
-| `urlType`       | `'hash' \| 'history'` | `'history'` | Routing mode to use                                                                                     |
+| `urlType`       | `'hash' \| 'history'` | `'hash'`    | Routing mode to use                                                                                     |
 | `fallbackPath`  | `string`              | `undefined` | Route to use when no match is found (must be a concrete, non-parameterized route path from your routes) |
 | `autoInit`      | `boolean`             | `true`      | Automatically initialize routing on creation                                                            |
 | `onEnter`       | `function`            | `undefined` | Global hook called when entering any route                                                              |

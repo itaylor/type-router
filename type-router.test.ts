@@ -20,7 +20,7 @@ Deno.test('URL encoding/decoding - handles spaces in parameters', async () => {
     }),
   ] as const;
 
-  const router = createRouter(routes, { autoInit: false });
+  const router = createRouter(routes, { autoInit: false, urlType: 'history' });
   router.init();
 
   // Navigate with spaces in parameter
@@ -63,7 +63,7 @@ Deno.test('URL encoding/decoding - handles special characters', async () => {
     }),
   ] as const;
 
-  const router = createRouter(routes, { autoInit: false });
+  const router = createRouter(routes, { autoInit: false, urlType: 'history' });
   router.init();
 
   // Test with C++ (plus signs)
@@ -253,7 +253,7 @@ Deno.test('Route priority - FIFO ordering when multiple routes could match', asy
     }),
   ] as const;
 
-  const router = createRouter(routes, { autoInit: false });
+  const router = createRouter(routes, { autoInit: false, urlType: 'history' });
   router.init();
 
   // Clear visited routes
@@ -429,7 +429,7 @@ Deno.test('Query parameters are stripped from path matching', async () => {
     }),
   ] as const;
 
-  const router = createRouter(routes, { autoInit: false });
+  const router = createRouter(routes, { autoInit: false, urlType: 'history' });
   router.init();
 
   // Navigate with query parameters - they should be ignored for route matching
@@ -488,7 +488,7 @@ Deno.test('Path validation - rejects empty segments', async () => {
 
   // Valid paths should still work
   await router.navigate('/about');
-  assertEquals(mock.mockLocation.pathname, '/about');
+  assertEquals(mock.mockLocation.hash, '#/about');
 
   mock.reset();
 });
@@ -584,7 +584,7 @@ Deno.test('Parameter extraction with special regex characters', async () => {
     }),
   ] as const;
 
-  const router = createRouter(routes, { autoInit: false });
+  const router = createRouter(routes, { autoInit: false, urlType: 'history' });
   router.init();
 
   // Test with regex special characters in parameter values

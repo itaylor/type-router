@@ -25,10 +25,39 @@ export interface MockGlobalContext {
 
 // Mock globalThis for unit tests
 export function mockGlobalThis(): MockGlobalContext {
-  const mockLocation: MockLocation = {
+  const listeners = new Map<string, Set<() => void>>();
+
+  // Create a proper location object with hash setter that triggers events
+  const mockLocationData = {
     pathname: '/',
     search: '',
     hash: '',
+  };
+
+  const mockLocation = {
+    get pathname() {
+      return mockLocationData.pathname;
+    },
+    set pathname(value: string) {
+      mockLocationData.pathname = value;
+    },
+    get search() {
+      return mockLocationData.search;
+    },
+    set search(value: string) {
+      mockLocationData.search = value;
+    },
+    get hash() {
+      return mockLocationData.hash;
+    },
+    set hash(value: string) {
+      // Mimic browser behavior: automatically prepend # if not present
+      mockLocationData.hash = value.startsWith('#') ? value : '#' + value;
+      // Trigger hashchange event automatically when hash is set
+      setTimeout(() => {
+        listeners.get('hashchange')?.forEach((handler) => handler());
+      }, 0);
+    },
   };
 
   const mockHistory: MockHistory = {
@@ -37,16 +66,14 @@ export function mockGlobalThis(): MockGlobalContext {
       // Instead, parse the URL string directly to preserve encoding
       const queryIndex = url.indexOf('?');
       if (queryIndex !== -1) {
-        mockLocation.pathname = url.substring(0, queryIndex);
-        mockLocation.search = url.substring(queryIndex);
+        mockLocationData.pathname = url.substring(0, queryIndex);
+        mockLocationData.search = url.substring(queryIndex);
       } else {
-        mockLocation.pathname = url;
-        mockLocation.search = '';
+        mockLocationData.pathname = url;
+        mockLocationData.search = '';
       }
     },
   };
-
-  const listeners = new Map<string, Set<() => void>>();
 
   // Cast to the actual global types to satisfy TypeScript
   // We're mocking the minimal surface area we need for tests
@@ -92,15 +119,15 @@ export function mockGlobalThis(): MockGlobalContext {
   });
 
   return {
-    mockLocation,
+    mockLocation: mockLocation as MockLocation,
     mockHistory,
     triggerEvent: (event: string) => {
       listeners.get(event)?.forEach((handler) => handler());
     },
     reset: () => {
-      mockLocation.pathname = '/';
-      mockLocation.search = '';
-      mockLocation.hash = '';
+      mockLocationData.pathname = '/';
+      mockLocationData.search = '';
+      mockLocationData.hash = '';
     },
   };
 }

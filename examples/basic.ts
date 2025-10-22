@@ -175,7 +175,7 @@ const _hashRouter = createRouter(
 
 console.log('Hash router created - URLs will use # prefix');
 
-// History-based routing (default, requires server support)
+// History-based routing (requires server support)
 const _historyRouter = createRouter(
   [
     { path: '/' },

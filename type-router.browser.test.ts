@@ -278,6 +278,80 @@ Deno.test('type-router - hash mode routing', async () => {
   await page.close();
 });
 
+Deno.test('type-router - hash mode empty path handling', async () => {
+  // Test 1: URL without any hash should default to root route
+  const page1 = await browser.newPage(
+    `http://${HASH_MODE_IP}:${server.addr.port}/`,
+  );
+  await page1.waitForFunction(() => window.testResults?.includes('ready:hash'));
+
+  // Should automatically route to root path
+  await page1.waitForFunction(() => window.testResults?.includes('entered:/'));
+
+  // Add a small delay to allow state subscription to be called
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Get state from subscription or router directly as fallback
+  let currentPath = await page1.evaluate(() =>
+    window.lastState?.path || window.router?.getState()?.path
+  );
+  assertEquals(currentPath, '/');
+  await page1.close();
+
+  // Test 2: URL with just '#' should also default to root route
+  const page2 = await browser.newPage(
+    `http://${HASH_MODE_IP}:${server.addr.port}/#`,
+  );
+  await page2.waitForFunction(() => window.testResults?.includes('ready:hash'));
+
+  await page2.waitForFunction(() => window.testResults?.includes('entered:/'));
+
+  // Add a small delay to allow state subscription to be called
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  currentPath = await page2.evaluate(() =>
+    window.lastState?.path || window.router?.getState()?.path
+  );
+  assertEquals(currentPath, '/');
+  await page2.close();
+
+  // Test 3: URL with '#/' should work normally
+  const page3 = await browser.newPage(
+    `http://${HASH_MODE_IP}:${server.addr.port}/#/`,
+  );
+  await page3.waitForFunction(() => window.testResults?.includes('ready:hash'));
+
+  await page3.waitForFunction(() => window.testResults?.includes('entered:/'));
+
+  // Add a small delay to allow state subscription to be called
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  currentPath = await page3.evaluate(() =>
+    window.lastState?.path || window.router?.getState()?.path
+  );
+  assertEquals(currentPath, '/');
+  await page3.close();
+
+  // Test 4: URL with a real hash path should still work
+  const page4 = await browser.newPage(
+    `http://${HASH_MODE_IP}:${server.addr.port}/#/about`,
+  );
+  await page4.waitForFunction(() => window.testResults?.includes('ready:hash'));
+
+  await page4.waitForFunction(() =>
+    window.testResults?.includes('entered:/about')
+  );
+
+  // Add a small delay to allow state subscription to be called
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  currentPath = await page4.evaluate(() =>
+    window.lastState?.path || window.router?.getState()?.path
+  );
+  assertEquals(currentPath, '/about');
+  await page4.close();
+});
+
 Deno.test('type-router - URL encoding/decoding in browser', async () => {
   const page = await createPage(HISTORY_MODE_IP);
 
@@ -656,7 +730,7 @@ Deno.test('type-router - getState and subscribe', async () => {
 
   // Navigate to "/" first to establish state
   await page.evaluate(() => window.router.navigate('/'));
-  await page.waitForFunction(() => window.stateHistory?.length >= 1);
+  await page.waitForFunction(() => window.testResults?.includes('entered:/'));
 
   // Test getState returns current state
   const initialState = await page.evaluate(() => window.router.getState());
@@ -665,16 +739,29 @@ Deno.test('type-router - getState and subscribe', async () => {
 
   // Navigate and check state history from subscription
   await page.evaluate(() => window.router.navigate('/about'));
-  await page.waitForFunction(() => window.stateHistory?.length >= 2);
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/about')
+  );
 
   await page.evaluate(() => window.router.navigate('/user/42'));
-  await page.waitForFunction(() => window.stateHistory?.length >= 3);
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/user/42')
+  );
 
   const stateHistory = await page.evaluate(() => window.stateHistory);
-  assertEquals(stateHistory[stateHistory.length - 3].path, '/');
-  assertEquals(stateHistory[stateHistory.length - 2].path, '/about');
-  assertEquals(stateHistory[stateHistory.length - 1].path, '/user/42');
-  assertEquals(stateHistory[stateHistory.length - 1].params.id, '42');
+
+  // Should have 2 state changes from our navigations (/about and /user/42)
+  // The initial navigation to "/" doesn't create a state entry since the router was already at "/"
+  assertEquals(
+    stateHistory.length,
+    2,
+    `Expected 2 state entries, got ${stateHistory.length}`,
+  );
+
+  // Check the entries we have
+  assertEquals(stateHistory[0].path, '/about');
+  assertEquals(stateHistory[1].path, '/user/42');
+  assertEquals(stateHistory[1].params.id, '42');
 
   // Verify getState returns latest
   const currentState = await page.evaluate(() => window.router.getState());

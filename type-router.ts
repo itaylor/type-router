@@ -129,7 +129,7 @@ export type Router<R extends readonly Route<string>[]> = {
 };
 
 const defaultOptions = {
-  urlType: 'history',
+  urlType: 'hash',
   autoInit: true,
 } as const;
 
@@ -286,7 +286,8 @@ export function createRouter<const R extends readonly Route<string>[]>(
       return pathname + search;
     }
     const { hash } = globalThis.location;
-    return hash.slice(1);
+    const hashPath = hash.slice(1); // Remove the #
+    return hashPath || '/'; // Default to '/' if empty
   }
 
   // Handles the url change.  If there is a route change it updates the
