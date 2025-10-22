@@ -32,6 +32,6 @@
     "singleQuote": true
   },
   "compilerOptions": {
-    "lib": ["dom", "es2022"]
+    "lib": ["dom", "es2022", "dom.iterable"]
   }
 }

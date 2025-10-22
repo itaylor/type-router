@@ -634,6 +634,155 @@ Deno.test('type-router - route priority and matching order', async () => {
   await page.close();
 });
 
+Deno.test('type-router - query parameters basic functionality', async () => {
+  const page = await createPage(HISTORY_MODE_IP);
+
+  // Wait for router to initialize
+  await page.waitForFunction(() =>
+    window.testResults?.includes('ready:history')
+  );
+
+  // Test navigation with query parameters
+  await page.evaluate(() =>
+    window.router.navigateAny('/search?q=typescript&category=web&sort=date')
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/search:typescript:web:date')
+  );
+
+  const state1 = await page.evaluate(() => window.lastState);
+  assertEquals(state1.path, '/search?q=typescript&category=web&sort=date');
+  assertEquals(state1.params.q, 'typescript');
+  assertEquals(state1.params.category, 'web');
+  assertEquals(state1.params.sort, 'date');
+
+  // Test partial query parameters - need to navigate away first to force exit/enter
+  await page.evaluate(() => window.router.navigate('/'));
+  await page.evaluate(() => window.router.navigateAny('/search?q=javascript'));
+  await page.waitForFunction(() =>
+    window.testResults?.includes(
+      'entered:/search:javascript::',
+    )
+  );
+
+  const state2 = await page.evaluate(() => window.lastState);
+  assertEquals(state2.path, '/search?q=javascript');
+  assertEquals(state2.params.q, 'javascript');
+  assertEquals(state2.params.category, undefined);
+  assertEquals(state2.params.sort, undefined);
+
+  await page.close();
+});
+
+Deno.test('type-router - query parameters with path parameters', async () => {
+  const page = await createPage(HISTORY_MODE_IP);
+
+  // Wait for router to initialize
+  await page.waitForFunction(() =>
+    window.testResults?.includes('ready:history')
+  );
+
+  // Test mixed path and query parameters
+  await page.evaluate(() =>
+    window.router.navigateAny(
+      '/product/laptop123?color=silver&size=15inch&variant=pro',
+    )
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/product/laptop123:silver:15inch:pro')
+  );
+
+  const state1 = await page.evaluate(() => window.lastState);
+  assertEquals(
+    state1.path,
+    '/product/laptop123?color=silver&size=15inch&variant=pro',
+  );
+  assertEquals(state1.params.id, 'laptop123');
+  assertEquals(state1.params.color, 'silver');
+  assertEquals(state1.params.size, '15inch');
+  assertEquals(state1.params.variant, 'pro');
+
+  // Test parameters without values (flags)
+  await page.evaluate(() => window.router.navigateAny('/flags?verbose&debug'));
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/flags:::')
+  );
+
+  const state2 = await page.evaluate(() => window.lastState);
+  assertEquals(state2.path, '/flags?verbose&debug');
+  assertEquals(state2.params.verbose, '');
+  assertEquals(state2.params.debug, '');
+  assertEquals(state2.params.silent, undefined);
+
+  await page.close();
+});
+
+Deno.test('type-router - query parameters URL encoding', async () => {
+  const page = await createPage(HISTORY_MODE_IP);
+
+  // Wait for router to initialize
+  await page.waitForFunction(() =>
+    window.testResults?.includes('ready:history')
+  );
+
+  // Test URL encoding in query parameters
+  await page.evaluate(() =>
+    window.router.navigateAny('/search?q=hello%20world&category=C%2B%2B')
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/search:hello world:C++:')
+  );
+
+  const state = await page.evaluate(() => window.lastState);
+  assertEquals(state.params.q, 'hello world');
+  assertEquals(state.params.category, 'C++');
+
+  await page.close();
+});
+
+Deno.test('type-router - query parameters with browser navigation', async () => {
+  const page = await createPage(HISTORY_MODE_IP);
+
+  // Wait for router to initialize
+  await page.waitForFunction(() =>
+    window.testResults?.includes('ready:history')
+  );
+
+  // Navigate to initial query parameter route
+  await page.evaluate(() =>
+    window.router.navigateAny('/search?q=first&category=tech')
+  );
+
+  await page.waitForFunction(() =>
+    window.testResults?.includes('entered:/search:first:tech:')
+  );
+
+  // Navigate to different query parameters (same route, so should trigger paramChange)
+  await page.evaluate(() =>
+    window.router.navigateAny('/search?q=second&category=web&sort=date')
+  );
+  await page.waitForFunction(() =>
+    window.testResults?.some((result) =>
+      result.includes('paramChange:search:') &&
+      result.includes('"q":"second"') &&
+      result.includes('"category":"web"') &&
+      result.includes('"sort":"date"')
+    )
+  );
+
+  // Test browser back button functionality
+  await page.evaluate(() => window.history.back());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const stateAfterBack = await page.evaluate(() => window.lastState);
+  assertEquals(stateAfterBack.path, '/search?q=first&category=tech');
+  assertEquals(stateAfterBack.params.q, 'first');
+  assertEquals(stateAfterBack.params.category, 'tech');
+  assertEquals(stateAfterBack.params.sort, undefined);
+
+  await page.close();
+});
+
 Deno.test('type-router - manual initialization', async () => {
   const page = await createPage(MANUAL_INIT_IP);
 

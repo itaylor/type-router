@@ -386,7 +386,7 @@ Deno.test('Race conditions - rapid sequential navigation', async () => {
   exitCount = 0;
 
   // Rapidly navigate back and forth
-  const rapidNavigations: Promise<void>[] = [];
+  const rapidNavigations: Promise<unknown>[] = [];
   for (let i = 0; i < 10; i++) {
     const path = i % 2 === 0 ? '/fast' : '/';
     rapidNavigations.push(router.navigateAny(path));
@@ -607,4 +607,332 @@ Deno.test('Parameter extraction with special regex characters', async () => {
   assertEquals(mock.mockLocation.pathname, '/regex/a%7Cb');
 
   mock.reset();
+});
+
+Deno.test('Query parameters - basic functionality and path param precedence', async () => {
+  const mock = mockGlobalThis();
+
+  let enteredParams: any = null;
+
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({
+      path: '/foo/:bar/baz?bar&fizz&buzz',
+      onEnter: (params) => {
+        enteredParams = params;
+      },
+    }),
+  ] as const;
+
+  const router = createRouter(routes, { autoInit: false });
+  router.init();
+
+  // Test with all query parameters present - path param should trump query param
+  await router.navigateAny('/foo/alice/baz?bar=bob&fizz=rad&buzz=yep');
+
+  assertEquals(enteredParams.bar, 'alice'); // Path param trumps query param
+  assertEquals(enteredParams.fizz, 'rad');
+  assertEquals(enteredParams.buzz, 'yep');
+
+  // Test with no query parameters
+  enteredParams = null;
+  await router.navigate('/'); // Reset to different route first
+  await router.navigateAny('/foo/bob/baz');
+
+  assertEquals(enteredParams.bar, 'bob');
+  assertEquals(enteredParams.fizz, undefined);
+  assertEquals(enteredParams.buzz, undefined);
+
+  // Test that undeclared query parameters are ignored
+  enteredParams = null;
+  await router.navigate('/'); // Reset to different route first
+  await router.navigateAny(
+    '/foo/charlie/baz?bar=ignored&fizz=cool&buzz=nice&undeclared=ignored',
+  );
+
+  assertEquals(enteredParams.bar, 'charlie'); // Path parameter wins
+  assertEquals(enteredParams.fizz, 'cool'); // Declared query parameter
+  assertEquals(enteredParams.buzz, 'nice'); // Declared query parameter
+  assertEquals(enteredParams.undeclared, undefined); // Undeclared query parameter ignored
+
+  mock.reset();
+});
+
+Deno.test('Query parameters - URL encoding and decoding', async () => {
+  const mock = mockGlobalThis();
+
+  let enteredParams: any = null;
+
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({
+      path: '/search?q&tags',
+      onEnter: (params) => {
+        enteredParams = params;
+      },
+    }),
+  ] as const;
+
+  const router = createRouter(routes, { autoInit: false });
+  router.init();
+
+  // Test URL encoding in query params
+  await router.navigateAny('/search?q=hello%20world&tags=C%2B%2B');
+
+  assertEquals(enteredParams.q, 'hello world');
+  assertEquals(enteredParams.tags, 'C++');
+
+  mock.reset();
+});
+
+Deno.test('Query parameters - computePath builds URLs correctly', () => {
+  const mock = mockGlobalThis();
+
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({
+      path: '/search/:category?q&sort',
+    }),
+  ] as const;
+
+  const router = createRouter(routes, { autoInit: false });
+
+  // Test building URL with query parameters
+  const url = router.computePath('/search/:category?q&sort', {
+    category: 'books',
+    q: 'typescript',
+    sort: 'price',
+  });
+
+  assertEquals(url.includes('/search/books'), true);
+  assertEquals(url.includes('q=typescript'), true);
+  assertEquals(url.includes('sort=price'), true);
+
+  // Test with partial parameters
+  const url2 = router.computePath('/search/:category?q&sort', {
+    category: 'tech',
+    q: 'javascript',
+    // sort omitted
+  });
+
+  assertEquals(url2.includes('/search/tech'), true);
+  assertEquals(url2.includes('q=javascript'), true);
+  assertEquals(url2.includes('sort='), false);
+
+  mock.reset();
+});
+
+Deno.test('Query parameters - mixed with existing functionality', async () => {
+  const mock = mockGlobalThis();
+
+  const visitedRoutes: string[] = [];
+
+  const routes = [
+    makeRoute({
+      path: '/',
+      onEnter: () => visitedRoutes.push('home'),
+    }),
+    makeRoute({
+      path: '/search/:query?page&tags&exact',
+      onEnter: (params) => {
+        visitedRoutes.push(
+          `search:${params.query}:${params.page}:${params.exact}`,
+        );
+      },
+      onParamChange: (params) => {
+        visitedRoutes.push(
+          `search:${params.query}:${params.page}:${params.exact}`,
+        );
+      },
+    }),
+  ] as const;
+
+  const router = createRouter(routes, {
+    autoInit: false,
+    fallbackPath: '/',
+  });
+  router.init();
+
+  // Test regular route still works
+  await router.navigate('/');
+  assertEquals(visitedRoutes[visitedRoutes.length - 1], 'home');
+
+  // Test route with query params
+  await router.navigateAny('/search/typescript?page=2&tags=web&exact=true');
+  assertEquals(
+    visitedRoutes[visitedRoutes.length - 1],
+    'search:typescript:2:true',
+  );
+
+  // Test navigation using typed parameters
+  await router.navigate('/search/:query?page&tags&exact', {
+    query: 'javascript',
+    page: '1',
+    tags: 'tutorial',
+    exact: 'false',
+  });
+  assertEquals(
+    visitedRoutes[visitedRoutes.length - 1],
+    'search:javascript:1:false',
+  );
+
+  mock.reset();
+});
+
+Deno.test('Query parameters - parameters with and without values', async () => {
+  const mock = mockGlobalThis();
+
+  let enteredParams: any = null;
+
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({
+      path: '/product/:id?color&size&variant',
+      onEnter: (params) => {
+        enteredParams = params;
+      },
+    }),
+    makeRoute({
+      path: '/flags?verbose&debug&silent',
+      onEnter: (params) => {
+        enteredParams = params;
+      },
+    }),
+  ] as const;
+
+  const router = createRouter(routes, { autoInit: false });
+  router.init();
+
+  // Test parameters with values
+  await router.navigateAny(
+    '/product/laptop123?color=silver&size=15inch&variant=pro',
+  );
+  assertEquals(enteredParams.id, 'laptop123');
+  assertEquals(enteredParams.color, 'silver');
+  assertEquals(enteredParams.size, '15inch');
+  assertEquals(enteredParams.variant, 'pro');
+
+  // Test parameters without values (flags)
+  enteredParams = null;
+  await router.navigate('/'); // Reset
+  await router.navigateAny('/flags?verbose&debug&silent');
+  assertEquals(enteredParams.verbose, '');
+  assertEquals(enteredParams.debug, '');
+  assertEquals(enteredParams.silent, '');
+
+  // Test mix of parameters with and without values
+  enteredParams = null;
+  await router.navigate('/'); // Reset
+  await router.navigateAny('/product/phone456?color=black&variant');
+  assertEquals(enteredParams.id, 'phone456');
+  assertEquals(enteredParams.color, 'black');
+  assertEquals(enteredParams.variant, ''); // Parameter without value becomes empty string
+  assertEquals(enteredParams.size, undefined);
+
+  mock.reset();
+});
+
+Deno.test('Query parameters - path-only navigation support', async () => {
+  const mock = mockGlobalThis();
+
+  let enteredParams: any = null;
+
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({
+      path: '/product/:id?color&size&variant',
+      onEnter: (params) => {
+        enteredParams = params;
+      },
+    }),
+  ] as const;
+
+  const router = createRouter(routes, { autoInit: false });
+  router.init();
+
+  // Test navigation with path-only pattern + query parameters
+  await router.navigate('/product/:id', {
+    id: 'phone456',
+    color: 'blue',
+    size: '6.1inch',
+    variant: 'wifi',
+  });
+
+  assertEquals(enteredParams.id, 'phone456');
+  assertEquals(enteredParams.color, 'blue');
+  assertEquals(enteredParams.size, '6.1inch');
+  assertEquals(enteredParams.variant, 'wifi');
+
+  // Test navigation with concrete path + query parameters
+  enteredParams = null;
+  await router.navigate('/'); // Reset to different route first
+  await router.navigate('/product/12', {
+    color: 'red',
+    size: 'large',
+    variant: 'premium',
+  });
+
+  assertEquals(enteredParams.id, '12');
+  assertEquals(enteredParams.color, 'red');
+  assertEquals(enteredParams.size, 'large');
+  assertEquals(enteredParams.variant, 'premium');
+
+  // Test partial parameters work too
+  enteredParams = null;
+  await router.navigate('/'); // Reset to different route first
+  await router.navigate('/product/:id', {
+    id: 'tablet789',
+    color: 'black',
+    // size and variant omitted
+  });
+
+  assertEquals(enteredParams.id, 'tablet789');
+  assertEquals(enteredParams.color, 'black');
+  assertEquals(enteredParams.size, undefined);
+  assertEquals(enteredParams.variant, undefined);
+
+  mock.reset();
+});
+
+// Define your routes with path and query parameters
+const router = createRouter(
+  [
+    { path: '/' },
+    { path: '/about' },
+    {
+      path: '/user/:id',
+      onEnter: (params) => {
+        console.log(`Entering user profile: ${params.id}`);
+        // params.id is typed as string!
+      },
+    },
+    { path: '/post/:category/:slug' },
+    {
+      path: '/search?q&category&sort',
+      onEnter: (params) => {
+        console.log(`Search: ${params.q}, Category: ${params.category}`);
+        // params.q, params.category, params.sort are typed as string | undefined
+      },
+    },
+  ] as const,
+);
+
+// Navigate with type safety
+await router.navigate('/');
+await router.navigate('/about');
+await router.navigate('/user/:id', { id: '123' });
+await router.navigate('/user/123'); // Also works with concrete paths
+await router.navigate('/post/:category/:slug', {
+  category: 'tech',
+  slug: 'intro-to-typescript',
+});
+
+// Navigate with query parameters
+await router.navigate('/search?q=typescript&category=web&sort=recent');
+
+// Or navigate with an object containing the query parameters
+await router.navigate('/search', { 
+  q: 'typescript',
+  category: 'web',
+  sort: 'recent'
 });

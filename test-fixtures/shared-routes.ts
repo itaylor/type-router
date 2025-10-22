@@ -44,6 +44,59 @@ export const testRoutes = [
       log('paramChange:' + prev.username + '->' + params.username),
   }),
   makeRoute({
+    path: '/search?q&category&sort',
+    onEnter: (params) =>
+      log(
+        'entered:/search:' + (params.q || '') + ':' + (params.category || '') +
+          ':' +
+          (params.sort || ''),
+      ),
+    onExit: (params) =>
+      log(
+        'exited:/search:' + (params.q || '') + ':' + (params.category || '') +
+          ':' +
+          (params.sort || ''),
+      ),
+    onParamChange: (params, prev) =>
+      log(
+        'paramChange:search:' + JSON.stringify(prev) + '->' +
+          JSON.stringify(params),
+      ),
+  }),
+  makeRoute({
+    path: '/product/:id?color&size&variant',
+    onEnter: (params) =>
+      log(
+        'entered:/product/' + params.id + ':' + (params.color || '') + ':' +
+          (params.size || '') + ':' + (params.variant || ''),
+      ),
+    onExit: (params) =>
+      log(
+        'exited:/product/' + params.id + ':' + (params.color || '') + ':' +
+          (params.size || '') + ':' + (params.variant || ''),
+      ),
+    onParamChange: (params, prev) =>
+      log(
+        'paramChange:product:' + JSON.stringify(prev) + '->' +
+          JSON.stringify(params),
+      ),
+  }),
+  makeRoute({
+    path: '/flags?verbose&debug&silent',
+    onEnter: (params) =>
+      log(
+        'entered:/flags:' + (params.verbose || '') + ':' +
+          (params.debug || '') + ':' +
+          (params.silent || ''),
+      ),
+    onExit: (params) =>
+      log(
+        'exited:/flags:' + (params.verbose || '') + ':' + (params.debug || '') +
+          ':' +
+          (params.silent || ''),
+      ),
+  }),
+  makeRoute({
     path: '/404',
     onEnter: () => log('entered:/404'),
   }),

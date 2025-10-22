@@ -9,12 +9,24 @@ export type ValidatePath<P extends string> = HasEmptySegment<P> extends true
 // --- param parsing helpers ---
 type ParamKeys<S extends string> = S extends `${string}:${infer P}`
   ? P extends `${infer Key}/${infer Rest}` ? Key | ParamKeys<Rest>
+  : P extends `${infer Key}?${string}` ? Key // Stop at query params
   : P
   : never;
 
+// --- query param parsing helpers ---
+type QueryParamKeys<S extends string> = S extends `${string}?${infer Q}`
+  ? Q extends `${infer Key}&${infer Rest}` ? Key | QueryParamKeys<`?${Rest}`>
+  : Q extends '' ? never
+  : Q
+  : never;
+
 export type ParamsFor<P extends string> = [ParamKeys<P>] extends [never]
-  ? Record<string, string>
-  : Record<ParamKeys<P>, string>;
+  ? [QueryParamKeys<P>] extends [never] ? Record<string, string>
+  : { [K in QueryParamKeys<P>]?: string }
+  : [QueryParamKeys<P>] extends [never] ? Record<ParamKeys<P>, string>
+  :
+    & Record<ParamKeys<P>, string>
+    & { [K in Exclude<QueryParamKeys<P>, ParamKeys<P>>]?: string };
 
 // --- route + factory ---
 export type Route<P extends string> = {
@@ -58,14 +70,55 @@ type MatchSegments<
   : SS extends [] ? true
   : false; // must be exact length (no extras)
 
-type IsConcreteMatch<S extends string, P extends string> = MatchSegments<
-  Segments<StripTrailingSlash<S>>,
-  Segments<StripTrailingSlash<P>>
->;
+// Extract query parameter names from a route pattern
+type ExtractQueryParams<S extends string> = S extends `${string}?${infer Q}`
+  ? Q extends `${infer Param}&${infer Rest}`
+    ? Param | ExtractQueryParams<`?${Rest}`>
+  : Q extends '' ? never
+  : Q
+  : never;
+
+// Extract query parameter names from a concrete URL
+type ExtractConcreteQueryParams<S extends string> = S extends
+  `${string}?${infer Q}`
+  ? Q extends `${infer Param}=${string}&${infer Rest}`
+    ? Param | ExtractConcreteQueryParams<`?${Rest}`>
+  : Q extends `${infer Param}&${infer Rest}`
+    ? Param | ExtractConcreteQueryParams<`?${Rest}`>
+  : Q extends `${infer Param}=${string}` ? Param
+  : Q extends '' ? never
+  : Q
+  : never;
+
+// Check if concrete query params are a subset of declared query params
+type QueryParamsMatch<
+  ConcreteParams extends string,
+  DeclaredParams extends string,
+> = [ConcreteParams] extends [never] ? true // No query params in concrete URL is always valid
+  : ConcreteParams extends DeclaredParams ? true
+  : false;
+
+type IsConcreteMatch<S extends string, P extends string> =
+  // First check if path segments match
+  MatchSegments<
+    Segments<
+      StripTrailingSlash<S extends `${infer Path}?${string}` ? Path : S>
+    >,
+    Segments<StripTrailingSlash<P extends `${infer Path}?${string}` ? Path : P>>
+  > extends true
+    // Then check if query parameters match
+    ? QueryParamsMatch<
+      ExtractConcreteQueryParams<S>,
+      ExtractQueryParams<P>
+    > extends true ? true
+    : false
+    : false;
 
 // Check if a path is concrete (contains no parameters like :id)
-export type IsConcretePath<S extends string> = S extends `${string}:${string}`
-  ? false
+// Ignore query parameters after ? when checking
+export type IsConcretePath<S extends string> = S extends
+  `${infer Path}?${string}` ? Path extends `${string}:${string}` ? false : true
+  : S extends `${string}:${string}` ? false
   : true;
 
 // For a union of patterns, accept S if it matches *any* member AND is concrete
@@ -80,13 +133,13 @@ export type Options<R extends readonly Route<string>[]> = {
   urlType: 'hash' | 'history';
   fallbackPath?: RoutePath<R>;
   autoInit?: boolean;
-  onEnter?: (route: Route<string>, params: Record<string, string>) => void;
+  onEnter?: (route: Route<string>, params: ParamsFor<RoutePath<R>>) => void;
   onParamChange?: (
     route: Route<string>,
-    params: Record<string, string>,
-    prevParams: Record<string, string>,
+    params: ParamsFor<RoutePath<R>>,
+    prevParams: ParamsFor<RoutePath<R>>,
   ) => void;
-  onExit?: (route: Route<string>, params: Record<string, string>) => void;
+  onExit?: (route: Route<string>, params: ParamsFor<RoutePath<R>>) => void;
   onMiss?: (path: string) => void;
 };
 
@@ -102,29 +155,57 @@ export type RouteState<R extends readonly Route<string>[]> = {
   route: Route<RoutePath<R>> | null;
 };
 
+// Extract path-only part (before ?) from a route pattern
+type PathOnly<P extends string> = P extends `${infer Path}?${string}` ? Path
+  : P;
+
+// Find the full route definition that matches a path-only pattern
+type FindFullRouteForPath<P extends string, R extends string> = R extends any
+  ? PathOnly<R> extends P ? R : never
+  : never;
+
+// Get parameter types for a path-only pattern by finding its full route definition
+type ParamsForPathOnly<P extends string, R extends readonly Route<string>[]> =
+  ParamsFor<FindFullRouteForPath<P, RoutePath<R>>>;
+
+// Check if a path-only pattern matches any route's path part
+type IsValidPathOnly<P extends string, R extends readonly Route<string>[]> =
+  FindFullRouteForPath<P, RoutePath<R>> extends never ? false : true;
+
 // Sets the url to a valid path that exists in a route
 // Overload 1: call with a declared pattern + (typed) params
 // Overload 2: call with a concrete path that matches one of the patterns
+// Overload 3: call with path-only pattern + params (including query params)
+// Overload 4: call with concrete path-only + params (including query params)
 export type NavigateFn<R extends readonly Route<string>[]> = {
   <P extends WithOptionalTrailingSlash<RoutePath<R>>>(
     path: ValidatePath<P>,
     params: ParamsFor<P>,
-  ): Promise<void>;
+  ): Promise<RouteState<R>>;
   <S extends string>(
     path: ValidatePath<ConcretePathForUnion<RoutePath<R>, S>>,
-  ): Promise<void>;
+  ): Promise<RouteState<R>>;
+  <P extends WithOptionalTrailingSlash<PathOnly<RoutePath<R>>>>(
+    path: ValidatePath<P>,
+    params: IsValidPathOnly<P, R> extends true ? ParamsForPathOnly<P, R>
+      : never,
+  ): Promise<RouteState<R>>;
+  <S extends string>(
+    path: ValidatePath<ConcretePathForUnion<PathOnly<RoutePath<R>>, S>>,
+    params: ParamsFor<FindFullRouteForPath<S, RoutePath<R>>>,
+  ): Promise<RouteState<R>>;
 };
 
 // Router type for the return type of createRouter
 export type Router<R extends readonly Route<string>[]> = {
   navigate: NavigateFn<R>;
-  navigateAny: (path: string) => Promise<void>;
+  navigateAny: (path: string) => Promise<RouteState<R>>;
   getState: () => RouteState<R>;
   subscribe: (callback: (route: RouteState<R>) => void) => () => void;
   computePath: <P extends RoutePath<R>>(
     path: P,
     params?: ParamsFor<P>,
-  ) => ValidatePath<ConcretePathForUnion<RoutePath<R>, typeof path>>;
+  ) => string;
   init: () => void;
 };
 
@@ -147,6 +228,8 @@ function validatePath(path: string): void {
     throw new Error(INVALID_PATH_ERROR(path));
   }
 }
+const enc = encodeURIComponent;
+const dec = decodeURIComponent;
 
 export function createRouter<const R extends readonly Route<string>[]>(
   routes: R,
@@ -166,19 +249,49 @@ export function createRouter<const R extends readonly Route<string>[]>(
   const matchers = buildRouteMatchers(routes);
 
   // Track pending navigation promises for proper async handling
-  const pendingNavigations: Array<{ path: string; resolve: () => void }> = [];
+  const pendingNavigations: Array<
+    { path: string; resolve: (routeState: RouteState<R>) => void }
+  > = [];
 
-  const navigate: NavigateFn<R> = function navigate<
-    P extends WithOptionalTrailingSlash<Path>,
-  >(path: P, paramsToSub?: ParamsFor<P>): Promise<void> {
+  const navigate: NavigateFn<R> = function navigate(
+    path: string,
+    paramsToSub?: any,
+  ): Promise<RouteState<R>> {
     let pathStr: string = path;
     if (paramsToSub) {
-      pathStr = computePath(path, paramsToSub);
+      // Check if this is a path-only pattern that corresponds to a route with query parameters
+      if (!path.includes('?')) {
+        const fullRoutePath = findFullRoutePathForPathOnly(path, routes);
+        if (fullRoutePath && fullRoutePath.includes('?')) {
+          if (path.includes(':')) {
+            // Template path - use computePath with full route
+            pathStr = computePath(fullRoutePath, paramsToSub);
+          } else {
+            // Concrete path - append query params manually
+            const queryParams = getQueryParamKeys(fullRoutePath);
+            const queryPairs: string[] = [];
+            for (const queryParam of queryParams) {
+              const value = paramsToSub[queryParam];
+              if (value !== undefined) {
+                queryPairs.push(
+                  `${enc(queryParam)}=${enc(value)}`,
+                );
+              }
+            }
+            pathStr = path +
+              (queryPairs.length > 0 ? `?${queryPairs.join('&')}` : '');
+          }
+        } else {
+          pathStr = computePath(path, paramsToSub);
+        }
+      } else {
+        pathStr = computePath(path, paramsToSub);
+      }
     }
     const { route, params } = getRouteWithParams(pathStr);
     if (!route) throw new Error(`No route found for path: ${path}`);
 
-    return new Promise<void>((resolve) => {
+    return new Promise<RouteState<R>>((resolve) => {
       // Validate path before calling pushState to avoid browser errors
       validatePath(pathStr);
       if (urlType === 'history') {
@@ -187,7 +300,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
         globalThis.history.pushState({}, '', pathStr);
         setTimeout(() => {
           activateRoute(pathStr, route, params);
-          resolve();
+          resolve(getState());
         }, 0);
       } else {
         // For hash mode: setting hash triggers hashchange event,
@@ -203,30 +316,54 @@ export function createRouter<const R extends readonly Route<string>[]>(
 
   // navigateAny allows navigation to any string path without compile-time type checking
   // Useful for runtime navigation from user input, HTML links, external URLs, etc.
-  function navigateAny(path: string): Promise<void> {
+  function navigateAny(path: string): Promise<RouteState<R>> {
     return (navigate as any)(path);
   }
 
   function computePath<P extends Path>(
     path: P,
     params?: ParamsFor<P>,
-  ): ValidatePath<ConcretePathForUnion<RoutePath<R>, typeof path>> {
+  ): string {
     // Takes the params and substitutes them into the path string, then returns it.
     // EG: 'path/abc' === computePath('/path/:id', { id: 'abc' });
     if (!params) {
-      return path as ValidatePath<
-        ConcretePathForUnion<RoutePath<R>, typeof path>
-      >;
+      return path;
     }
-    return path.replace(
+
+    // Split path and query parts
+    const [pathPart, queryPart] = path.split('?', 2);
+
+    // Substitute path parameters
+    let resultPath = pathPart.replace(
       /:(\w+)/g,
-      (_, key) => encodeURIComponent((params as any)[key] || ''),
-    ) as ValidatePath<ConcretePathForUnion<RoutePath<R>, typeof path>>;
+      (_, key) => enc((params as any)[key] || ''),
+    );
+
+    // Build query string from declared query parameters
+    if (queryPart) {
+      const queryParams = getQueryParamKeys(path);
+      const queryPairs: string[] = [];
+
+      for (const queryParam of queryParams) {
+        const value = (params as any)[queryParam];
+        if (value !== undefined) {
+          queryPairs.push(
+            `${enc(queryParam)}=${enc(value)}`,
+          );
+        }
+      }
+
+      if (queryPairs.length > 0) {
+        resultPath += `?${queryPairs.join('&')}`;
+      }
+    }
+
+    return resultPath;
   }
 
   function getRouteWithParams(path: string): RouteWithParams<Path> {
-    // Strip query string if present
-    const cleanPath = path.split('?')[0];
+    // Split path and query string
+    const [cleanPath, queryString] = path.split('?', 2);
 
     // Validate the cleaned path
     if (!isValidPath(cleanPath)) {
@@ -241,16 +378,33 @@ export function createRouter<const R extends readonly Route<string>[]>(
         const route = routes.find((r) => r.path === routePath);
         if (!route) continue;
 
-        // Extract parameters from the matched path
-        const paramKeys = routePath.match(/:(\w+)/g)?.map((p) => p.slice(1)) ||
+        // Extract path parameters from the matched path
+        const pathParamKeys =
+          cleanPathPart(routePath).match(/:(\w+)/g)?.map((p) => p.slice(1)) ||
           [];
         const params: Record<string, string> = {};
-        paramKeys.forEach((key, index) => {
-          params[key] = decodeURIComponent(match[index + 1]); // +1 because match[0] is the full match
+        pathParamKeys.forEach((key, index) => {
+          params[key] = dec(match[index + 1]); // +1 because match[0] is the full match
         });
 
+        // Extract query parameters from the route definition and URL
+        if (queryString) {
+          const declaredQueryParams = getQueryParamKeys(routePath);
+          const urlSearchParams = new URLSearchParams(queryString);
+
+          for (const queryParam of declaredQueryParams) {
+            const value = urlSearchParams.get(queryParam);
+            if (value !== null) {
+              // Path params trump query params with the same name
+              if (!(queryParam in params)) {
+                params[queryParam] = value; // Don't double-decode
+              }
+            }
+          }
+        }
+
         return {
-          realPath: cleanPath,
+          realPath: path,
           route: route as Route<Path>,
           params: params as ParamsFor<Path>,
         };
@@ -299,7 +453,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
     // Since hashchange events are FIFO, just shift from the queue
     if (pendingNavigations.length > 0) {
       const nav = pendingNavigations.shift()!;
-      nav.resolve();
+      nav.resolve(getState());
     }
   }
   function activateRoute(
@@ -341,8 +495,10 @@ export function createRouter<const R extends readonly Route<string>[]>(
     for (const route of routes) {
       // Validate route path at creation time
       validatePath(route.path);
+      // Strip query parameters for matching - only match the path part
+      const pathPart = cleanPathPart(route.path);
       const matcher = new RegExp(
-        `^${route.path.replace(/:[^/]+/g, '([^/]+)')}/?$`,
+        `^${pathPart.replace(/:[^/]+/g, '([^/]+)')}/?$`,
       );
       matchers.set(route.path, matcher);
     }
@@ -392,8 +548,8 @@ export function makeRoute<P extends string>(route: Route<P>): Route<P> {
 }
 
 function shallowEqual(
-  obj1: Record<string, string>,
-  obj2: Record<string, string>,
+  obj1: Record<string, string | undefined>,
+  obj2: Record<string, string | undefined>,
 ): boolean {
   if (obj1 === obj2) {
     return true;
@@ -407,6 +563,45 @@ function shallowEqual(
   }
 
   return keys1.every((key) => keys2.includes(key) && obj1[key] === obj2[key]);
+}
+
+// Helper function to extract just the path part (before ?)
+function cleanPathPart(path: string): string {
+  return path.split('?')[0];
+}
+
+// Helper function to get query parameter names from a path
+function getQueryParamKeys(path: string): string[] {
+  const queryPart = path.split('?')[1];
+  if (!queryPart) return [];
+
+  return queryPart.split('&').filter((param) => param.length > 0);
+}
+
+// Helper function to find full route path for a path-only pattern
+function findFullRoutePathForPathOnly(
+  pathOnlyPattern: string,
+  routes: readonly Route<string>[],
+): string | null {
+  for (const route of routes) {
+    const routePathOnly = cleanPathPart(route.path);
+
+    // If input is a template pattern, do exact match
+    if (pathOnlyPattern.includes(':')) {
+      if (routePathOnly === pathOnlyPattern) {
+        return route.path;
+      }
+    } else {
+      // If input is concrete path, check if it matches the route pattern
+      const matcher = new RegExp(
+        `^${routePathOnly.replace(/:[^/]+/g, '([^/]+)')}/?$`,
+      );
+      if (matcher.test(pathOnlyPattern)) {
+        return route.path;
+      }
+    }
+  }
+  return null;
 }
 
 // // --- usage ---

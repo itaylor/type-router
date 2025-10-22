@@ -15,6 +15,7 @@ import {
   makeRoute,
   type ParamsFor,
   type Route,
+  type RouteState,
 } from './type-router.ts';
 
 // ============================================================================
@@ -218,17 +219,103 @@ type AssertExtends<T, U extends T> = U;
   const router = createRouter(routes);
 
   // Test overload 1: Pattern with params
-  const promise1: Promise<void> = router.navigate('/users/:id', { id: '123' });
+  const _promise1 = router.navigate('/users/:id', { id: '123' });
 
   // Test overload 2: Concrete path
-  const promise2: Promise<void> = router.navigate('/users/123');
-
-  // Both should return Promise<void>
-  type TestPromise1 = AssertEqual<Equal<typeof promise1, Promise<void>>>;
-  type TestPromise2 = AssertEqual<Equal<typeof promise2, Promise<void>>>;
+  const _promise2 = router.navigate('/users/123');
 }
 
 // ============================================================================
+// Path-only navigation with query parameters type tests
+// ============================================================================
+
+function _testPathOnlyNavigationTypes() {
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({ path: '/product/:id?color&size&variant' }),
+    makeRoute({ path: '/search/:query?page&tags&exact' }),
+  ] as const;
+
+  const router = createRouter(routes);
+
+  // ✅ Valid: Path-only pattern with all parameters (including query params)
+  const promise1 = router.navigate('/product/:id', {
+    id: '123',
+    color: 'red',
+    size: 'large',
+    variant: 'premium',
+  });
+
+  // ✅ Valid: Path-only pattern with partial parameters
+  const promise2 = router.navigate('/product/:id', {
+    id: '456',
+    color: 'blue',
+    // size and variant omitted (optional)
+  });
+
+  // ✅ Valid: Concrete path with query parameters
+  const promise3 = router.navigate('/product/789', {
+    color: 'green',
+    size: 'medium',
+  });
+
+  // ✅ Valid: Concrete path with no query parameters
+  const promise4 = router.navigate('/product/999', {});
+
+  // ✅ Valid: Mixed path and query parameters
+  const promise5 = router.navigate('/search/:query', {
+    query: 'typescript',
+    page: '1',
+    tags: 'programming',
+    exact: 'true',
+  });
+
+  // Type assertions to verify return types
+  type TestPromise1 = AssertEqual<
+    Equal<typeof promise1, Promise<RouteState<typeof routes>>>
+  >;
+  type TestPromise2 = AssertEqual<
+    Equal<typeof promise2, Promise<RouteState<typeof routes>>>
+  >;
+  type TestPromise3 = AssertEqual<
+    Equal<typeof promise3, Promise<RouteState<typeof routes>>>
+  >;
+  type TestPromise4 = AssertEqual<
+    Equal<typeof promise4, Promise<RouteState<typeof routes>>>
+  >;
+  type TestPromise5 = AssertEqual<
+    Equal<typeof promise5, Promise<RouteState<typeof routes>>>
+  >;
+
+  // TypeScript should catch these errors:
+
+  //@ts-expect-error Missing required path parameter
+  const _errorPromise1 = router.navigate('/product/:id', {
+    color: 'red',
+    // id is missing!
+  });
+
+  //@ts-expect-error Wrong parameter name
+  const _errorPromise2 = router.navigate('/product/:id', {
+    id: '123',
+    colour: 'red', // should be 'color'
+  });
+
+  //@ts-expect-error Undeclared query parameter
+  const _errorPromise3 = router.navigate('/product/:id', {
+    id: '123',
+    color: 'red',
+    undeclared: 'param', // not in route definition
+  });
+
+  //@ts-expect-error  Invalid path-only pattern
+  const _errorPromise4 = router.navigate('/nonexistent/:id', {
+    id: '123',
+  });
+}
+
+// ============================================================================</text>
+
 // Router State Types
 // ============================================================================
 
@@ -403,10 +490,9 @@ type AssertExtends<T, U extends T> = U;
       commentId: '4',
     },
   );
-
+  // @ts-expect-error - Missing commentId
   router.navigate(
     '/org/:orgId/projects/:projectId/tasks/:taskId/comments/:commentId',
-    // @ts-expect-error - Missing commentId
     {
       orgId: '1',
       projectId: '2',

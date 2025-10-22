@@ -17,6 +17,7 @@ powerful API.
 - 📦 **Simple API**: Intuitive and minimal API surface
 - ⚡ **Fast**: Efficient regex-based route matching
 - 🔀 **Async Navigation**: Consistent async behavior across routing modes
+- 🔍 **Query Parameters**: First-class support for type-safe query parameters
 
 ## Installation
 
@@ -45,7 +46,7 @@ pnpm add @itaylor/type-router
 ```typescript
 import { createRouter } from '@itaylor/type-router';
 
-// Define your routes
+// Define your routes with path and query parameters
 const router = createRouter(
   [
     { path: '/' },
@@ -58,6 +59,13 @@ const router = createRouter(
       },
     },
     { path: '/post/:category/:slug' },
+    {
+      path: '/search?q&category&sort',
+      onEnter: (params) => {
+        console.log(`Search: ${params.q}, Category: ${params.category}`);
+        // params.q, params.category, params.sort are typed as string | undefined
+      },
+    },
   ] as const,
 );
 
@@ -71,9 +79,19 @@ await router.navigate('/post/:category/:slug', {
   slug: 'intro-to-typescript',
 });
 
+// Navigate with query parameters
+await router.navigate('/search?q=typescript&category=web&sort=recent');
+
+// Or navigate with an object containing the query parameters
+await router.navigate('/search', {
+  q: 'typescript',
+  category: 'web',
+  sort: 'recent',
+});
 // TypeScript will catch these errors:
 // router.navigate('/invalid-route');  // ❌ Type error!
 // router.navigate('/user/:id', { wrong: '123' }); // ❌ Type error!
+// router.navigate('/search?bomb=true'); // ❌ Type error!
 ```
 
 ## Core Concepts
@@ -121,6 +139,42 @@ router.navigate('/product/:category/:id', {
   id: 'laptop-123',
 });
 ```
+
+### Query Parameters
+
+Query parameters are declared directly in the route path using the syntax
+`?param1&param2&param3`. They are always optional and type-safe:
+
+```typescript
+const router = createRouter(
+  [
+    { path: '/search?q&category&sort' },
+    { path: '/product/:id?color&size&variant' }, // Mixed path + query params
+  ] as const,
+);
+
+// All query parameters are optional (string | undefined)
+await router.navigate('/search?q=typescript&category=web');
+await router.navigate('/search'); // Works without query params
+
+// Mixed path and query parameters
+await router.navigate('/product/laptop123?color=silver&size=15inch');
+
+// Path parameters always take precedence over query parameters with same name
+const router2 = createRouter([{ path: '/user/:id?id&settings' }] as const);
+await router2.navigate('/user/alice?id=ignored&settings=dark');
+// params.id === 'alice' (from path), not 'ignored' (from query)
+```
+
+**Key principles:**
+
+- ✅ **Only declared query parameters are extracted** - undeclared params are
+  ignored
+- ✅ **Query parameters don't affect route matching** - only the path part
+  (before `?`) is used
+- ✅ **Path parameters trump query parameters** - when there's a name conflict,
+  path params win
+- ✅ **Type-safe and optional** - all query params are `string | undefined`
 
 ### Navigation Modes
 
@@ -317,11 +371,28 @@ unsubscribe();
 
 #### `computePath(pattern, params?)`
 
-Convert a route pattern and parameters into a concrete path.
+Convert a route pattern and parameters into a concrete path. Works with both
+path and query parameters.
 
 ```typescript
 const path = router.computePath('/user/:id', { id: '123' });
 console.log(path); // '/user/123'
+
+// With query parameters
+const searchPath = router.computePath('/search?q&category&sort', {
+  q: 'typescript',
+  category: 'web',
+  sort: 'recent',
+});
+console.log(searchPath); // '/search?q=typescript&category=web&sort=recent'
+
+// Mixed path and query parameters
+const productPath = router.computePath('/product/:id?color&size', {
+  id: 'laptop123',
+  color: 'silver',
+  // size omitted - won't appear in URL
+});
+console.log(productPath); // '/product/laptop123?color=silver'
 
 // Works without parameters for routes without params
 const homePath = router.computePath('/');
@@ -374,6 +445,70 @@ const userRoute = makeRoute({
 });
 
 const separateRouter = createRouter([userRoute] as const);
+```
+
+### Query Parameters
+
+Query parameters provide a powerful way to add optional, type-safe parameters to
+your routes. They're declared directly in the route path and automatically
+inferred by TypeScript.
+
+#### Enhanced Path-Only Navigation
+
+Query parameters support three equivalent navigation patterns:
+
+```typescript
+const router = createRouter(
+  [{ path: '/product/:id?color&size&variant' }] as const,
+);
+
+// All three approaches are equivalent and type-safe:
+
+// 1. Path template (enhanced)
+await router.navigate('/product/:id', {
+  id: 'phone456',
+  color: 'blue',
+  size: '6.1inch',
+  variant: 'wifi',
+});
+
+// 2. Concrete path (enhanced)
+await router.navigate('/product/12', {
+  color: 'red',
+  size: 'large',
+  variant: 'premium',
+});
+
+// 3. Traditional (still works)
+await router.navigate('/product/:id?color&size&variant', {
+  id: '789',
+  color: 'green',
+});
+```
+
+#### Key Features
+
+- **Path parameters are required** (`string`) - extracted from URL path
+- **Query parameters are optional** (`string | undefined`) - declared after `?`
+- **Path parameters trump query parameters** with the same name
+- **URL encoding/decoding** is handled automatically
+- **Only declared parameters** are extracted; others are ignored
+
+```typescript
+// Mixed path and query parameters
+const router = createRouter(
+  [
+    { path: '/search/:query?page&category&sort' },
+  ] as const,
+);
+
+// TypeScript knows: query is required, others are optional
+await router.navigate('/search/:query', {
+  query: 'typescript', // string (required)
+  page: '2', // string | undefined (optional)
+  category: 'programming', // string | undefined (optional)
+  // sort omitted - perfectly valid
+});
 ```
 
 ### Global vs Route-Level Hooks
@@ -571,6 +706,9 @@ router.navigate('/user/:userId', { userId: '123' });
 router.navigate('/user/123');
 router.navigate('/post/tech/typescript-intro');
 
+// With query parameters
+router.navigateAny('/search?q=typescript&category=web');
+
 // ❌ TypeScript errors
 router.navigate('/unknown'); // Unknown route
 router.navigate('/user/:userId', { id: '123' }); // Wrong param name
@@ -587,6 +725,18 @@ const router = createRouter(
       onEnter: (params) => {
         // TypeScript knows params has year, month, and slug properties
         const { year, month, slug } = params; // All typed as string
+      },
+    },
+    {
+      path: '/search/:query?page&tags&exact',
+      onEnter: (params) => {
+        // Path parameters are required (string)
+        const query: string = params.query;
+
+        // Query parameters are optional (string | undefined)
+        const page: string | undefined = params.page;
+        const tags: string | undefined = params.tags;
+        const exact: string | undefined = params.exact;
       },
     },
   ] as const,
