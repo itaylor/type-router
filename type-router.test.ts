@@ -931,8 +931,8 @@ await router.navigate('/post/:category/:slug', {
 await router.navigate('/search?q=typescript&category=web&sort=recent');
 
 // Or navigate with an object containing the query parameters
-await router.navigate('/search', { 
+await router.navigate('/search', {
   q: 'typescript',
   category: 'web',
-  sort: 'recent'
+  sort: 'recent',
 });
