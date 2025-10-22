@@ -309,14 +309,16 @@ export function createRouter<const R extends readonly Route<string>[]>(
     const { route: currRoute, params: currParams } = currState;
     if (currRoute) {
       if (currRoute === route) {
-        options.onParamChange?.(route, params, currParams);
-        route.onParamChange?.(params, currParams);
-        currState = {
-          ...currState,
-          params,
-          path,
-        };
-        subscribers.forEach((subscriber) => subscriber(currState));
+        if (!shallowEqual(params, currParams)) {
+          opts.onParamChange?.(route, params, currParams);
+          route.onParamChange?.(params, currParams);
+          currState = {
+            ...currState,
+            params,
+            path,
+          };
+          subscribers.forEach((subscriber) => subscriber(currState));
+        }
         return;
       }
       options.onExit?.(currRoute, currParams);
@@ -386,6 +388,24 @@ export function createRouter<const R extends readonly Route<string>[]>(
 // which would usually infer them for you
 export function makeRoute<P extends string>(route: Route<P>): Route<P> {
   return route;
+}
+
+function shallowEqual(
+  obj1: Record<string, string>,
+  obj2: Record<string, string>,
+): boolean {
+  if (obj1 === obj2) {
+    return true;
+  }
+
+  const keys1 = Object.keys(obj1);
+  const keys2 = Object.keys(obj2);
+
+  if (keys1.length !== keys2.length) {
+    return false;
+  }
+
+  return keys1.every((key) => keys2.includes(key) && obj1[key] === obj2[key]);
 }
 
 // // --- usage ---
