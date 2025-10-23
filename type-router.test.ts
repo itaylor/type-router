@@ -893,3 +893,31 @@ Deno.test('Query parameters - path-only navigation support', async () => {
 
   mock.reset();
 });
+
+Deno.test('Query parameters - path-only navigation support', async () => {
+  const mock = mockGlobalThis();
+
+  const routes = [
+    makeRoute({ path: '/' }),
+    makeRoute({ path: '/product/:id?color&size&variant' }),
+  ] as const;
+
+  const router = createRouter(routes, { autoInit: false });
+  router.init();
+
+  // Test navigation with path-only pattern + query parameters
+  await router.navigate('/product/:id', {
+    id: 'phone456',
+    color: 'blue',
+    size: '6.1inch',
+    variant: 'wifi',
+  });
+  const path = router.computePath('/product/:id?color&size&variant', {
+    id: 'phone456',
+    color: 'blue',
+    size: '6.1inch',
+    variant: 'wifi',
+  });
+  await router.navigate(path);
+  mock.reset();
+});

@@ -121,6 +121,9 @@ export type IsConcretePath<S extends string> = S extends
   : S extends `${string}:${string}` ? false
   : true;
 
+type ConcretePath<S extends string> = IsConcretePath<S> extends true ? S
+  : never;
+
 // For a union of patterns, accept S if it matches *any* member AND is concrete
 export type ConcretePathForUnion<Ps extends string, S extends string> =
   IsConcretePath<S> extends true
@@ -129,9 +132,18 @@ export type ConcretePathForUnion<Ps extends string, S extends string> =
     : never
     : never;
 
+// Filter concrete paths from a union type
+type ConcretePathsFromUnion<T extends string> = T extends any
+  ? IsConcretePath<T> extends true ? T
+  : never
+  : never;
+
+// Type for a concrete path computed from parameter substitution
+export type ComputedConcretePath = string & { __brand: 'ComputedConcretePath' };
+
 export type Options<R extends readonly Route<string>[]> = {
   urlType: 'hash' | 'history';
-  fallbackPath?: RoutePath<R>;
+  fallbackPath?: ValidatePath<ConcretePathsFromUnion<PathOnly<RoutePath<R>>>>;
   autoInit?: boolean;
   onEnter?: (route: Route<string>, params: ParamsFor<RoutePath<R>>) => void;
   onParamChange?: (
@@ -156,27 +168,33 @@ export type RouteState<R extends readonly Route<string>[]> = {
 };
 
 // Extract path-only part (before ?) from a route pattern
-type PathOnly<P extends string> = P extends `${infer Path}?${string}` ? Path
+export type PathOnly<P extends string> = P extends `${infer Path}?${string}`
+  ? Path
   : P;
 
 // Find the full route definition that matches a path-only pattern
-type FindFullRouteForPath<P extends string, R extends string> = R extends any
-  ? PathOnly<R> extends P ? R : never
+export type FindFullRouteForPath<P extends string, R extends string> = R extends
+  any ? PathOnly<R> extends P ? R : never
   : never;
 
 // Get parameter types for a path-only pattern by finding its full route definition
-type ParamsForPathOnly<P extends string, R extends readonly Route<string>[]> =
-  ParamsFor<FindFullRouteForPath<P, RoutePath<R>>>;
+export type ParamsForPathOnly<
+  P extends string,
+  R extends readonly Route<string>[],
+> = ParamsFor<FindFullRouteForPath<P, RoutePath<R>>>;
 
 // Check if a path-only pattern matches any route's path part
-type IsValidPathOnly<P extends string, R extends readonly Route<string>[]> =
-  FindFullRouteForPath<P, RoutePath<R>> extends never ? false : true;
+export type IsValidPathOnly<
+  P extends string,
+  R extends readonly Route<string>[],
+> = FindFullRouteForPath<P, RoutePath<R>> extends never ? false : true;
 
 // Sets the url to a valid path that exists in a route
 // Overload 1: call with a declared pattern + (typed) params
 // Overload 2: call with a concrete path that matches one of the patterns
 // Overload 3: call with path-only pattern + params (including query params)
 // Overload 4: call with concrete path-only + params (including query params)
+// Overload 5: call with a computed concrete path from computePath
 export type NavigateFn<R extends readonly Route<string>[]> = {
   <P extends WithOptionalTrailingSlash<RoutePath<R>>>(
     path: ValidatePath<P>,
@@ -194,6 +212,7 @@ export type NavigateFn<R extends readonly Route<string>[]> = {
     path: ValidatePath<ConcretePathForUnion<PathOnly<RoutePath<R>>, S>>,
     params: ParamsFor<FindFullRouteForPath<S, RoutePath<R>>>,
   ): Promise<RouteState<R>>;
+  (path: ComputedConcretePath): Promise<RouteState<R>>;
 };
 
 // Router type for the return type of createRouter
@@ -205,7 +224,7 @@ export type Router<R extends readonly Route<string>[]> = {
   computePath: <P extends RoutePath<R>>(
     path: P,
     params?: ParamsFor<P>,
-  ) => string;
+  ) => ComputedConcretePath;
   init: () => void;
 };
 
@@ -323,11 +342,11 @@ export function createRouter<const R extends readonly Route<string>[]>(
   function computePath<P extends Path>(
     path: P,
     params?: ParamsFor<P>,
-  ): string {
+  ): ComputedConcretePath {
     // Takes the params and substitutes them into the path string, then returns it.
     // EG: 'path/abc' === computePath('/path/:id', { id: 'abc' });
     if (!params) {
-      return path;
+      return path as unknown as ComputedConcretePath;
     }
 
     // Split path and query parts
@@ -358,7 +377,7 @@ export function createRouter<const R extends readonly Route<string>[]>(
       }
     }
 
-    return resultPath;
+    return resultPath as unknown as ComputedConcretePath;
   }
 
   function getRouteWithParams(path: string): RouteWithParams<Path> {

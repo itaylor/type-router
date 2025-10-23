@@ -234,9 +234,10 @@ function _testPathOnlyNavigationTypes() {
     makeRoute({ path: '/' }),
     makeRoute({ path: '/product/:id?color&size&variant' }),
     makeRoute({ path: '/search/:query?page&tags&exact' }),
+    makeRoute({ path: '/404' }),
   ] as const;
 
-  const router = createRouter(routes);
+  const router = createRouter(routes, { fallbackPath: '/404' });
 
   // ✅ Valid: Path-only pattern with all parameters (including query params)
   const promise1 = router.navigate('/product/:id', {
