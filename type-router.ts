@@ -121,9 +121,6 @@ export type IsConcretePath<S extends string> = S extends
   : S extends `${string}:${string}` ? false
   : true;
 
-type ConcretePath<S extends string> = IsConcretePath<S> extends true ? S
-  : never;
-
 // For a union of patterns, accept S if it matches *any* member AND is concrete
 export type ConcretePathForUnion<Ps extends string, S extends string> =
   IsConcretePath<S> extends true
