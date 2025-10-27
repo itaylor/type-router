@@ -1,6 +1,6 @@
 {
   "name": "@itaylor/type-router",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "A lightweight, type-safe router for single-page applications with first-class TypeScript support",
   "exports": "./type-router.ts",
   "publish": {

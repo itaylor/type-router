@@ -2,6 +2,7 @@
 // Run with: deno run -A scripts/build_npm.ts
 
 import { build, emptyDir } from '@dnt/mod';
+import denoJson from '../deno.json' with { type: 'json' };
 
 await emptyDir('./npm');
 
@@ -22,9 +23,8 @@ await build({
   },
   package: {
     name: '@itaylor/type-router',
-    version: '1.0.0',
-    description:
-      'A lightweight, type-safe router for single-page applications with first-class TypeScript support',
+    version: denoJson.version,
+    description: denoJson.description,
     keywords: [
       'router',
       'routing',
@@ -43,8 +43,10 @@ await build({
     ],
     license: 'MIT',
     author: 'itaylor',
-    engines: {
-      node: '>=14.0.0',
+    homepage: 'https://github.com/itaylor/type-router',
+    repository: {
+      type: 'git',
+      url: 'https://github.com/itaylor/type-router.git',
     },
   },
   postBuild() {
